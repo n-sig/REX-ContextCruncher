@@ -81,19 +81,21 @@ class ClipboardMonitor:
                 new_text = self.on_clipboard_changed(str(text))
                 
                 if new_text is not None and new_text != str(text):
-                    # Write the minified text back
+                    # Write the minified text back.
+                    # FIX (Bug #4): increment _ignore_next_changes BEFORE writing
+                    # so the monitor skips its own write on the very next poll.
+                    # pyperclip.copy() can trigger 1–2 sequence-number increments
+                    # depending on the clipboard implementation; setting 2 is safe.
                     try:
-                        # We are about to write, the sequence number will change.
-                        # Sometimes writing to the clipboard can trigger 2 sequence updates
-                        # depending on how the application handles it (e.g. empty then write).
-                        # Let's just track that we did a write, and update the last_seq right after.
+                        self._ignore_next_changes += 2
                         pyperclip.copy(new_text)
-                        
-                        # Update the last_seq so we don't catch our own update on the next loop
-                        time.sleep(0.05) 
+
+                        # Give the OS a moment to settle, then update last_seq.
+                        time.sleep(0.05)
                         self.last_seq = self.get_seq()
                     except Exception:
-                        pass
+                        # If the write failed, undo the counter increment.
+                        self._ignore_next_changes = max(0, self._ignore_next_changes - 2)
                         
             except Exception as e:
                 # Catch-all to prevent monitor thread from crashing

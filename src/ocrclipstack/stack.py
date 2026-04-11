@@ -149,13 +149,19 @@ class TextStack:
         return self._items[self._cursor]
 
     def navigate(self, direction: int) -> str | None:
-        """Move the cursor: +1 = older, -1 = newer. Returns the new current text."""
+        """Move the cursor: +1 = older, -1 = newer.
+
+        FIX (Bug #5): Returns the new current text only when the cursor
+        actually moved.  Returns *None* when already at the boundary so
+        callers can suppress the success beep / toast.
+        """
         if not self._items:
             return None
         new_pos = self._cursor + direction
         if 0 <= new_pos < len(self._items):
             self._cursor = new_pos
-        return self.current()
+            return self.current()
+        return None  # Already at boundary — nothing changed
 
     def cycle_variant(self) -> Variant | None:
         """Cycle the current entry to its next variant.
@@ -194,6 +200,17 @@ class TextStack:
         if 0 <= index < len(self._items):
             return self._items[index]
         return None
+
+    def set_cursor(self, index: int) -> bool:
+        """Move the cursor to *index*.  Returns True on success.
+
+        Added for Bug #9 fix: replaces direct ``_cursor`` mutation in
+        main.py and tray.py.
+        """
+        if 0 <= index < len(self._items):
+            self._cursor = index
+            return True
+        return False
 
     def size(self) -> int:
         """Return the number of entries in the stack."""

@@ -3,35 +3,109 @@ main.py — Entry point for ContextCruncher.
 
 Wires up: tray icon, hotkeys, overlay, OCR engine, clipboard, feedback,
 variant picker, and settings dialog.
+
+FIXES applied:
+  Bug #3  — _scan_active lock prevents two overlays from opening at once.
+  Bug #8  — DPI-awareness is set once here at startup, not per scan.
+  Bug #9  — Tray/stack interaction uses public TextStack API (set_cursor,
+             get_entry) instead of accessing _items / _cursor directly.
+  Bug #10 — Windows named-mutex singleton guard: second instance shows a
+             message box and exits.
+  Bug #11 — Structured logging to %APPDATA%/OCRClipStack/app.log.
 """
 
 from __future__ import annotations
 
-import sys
+import ctypes
+import logging
+import logging.handlers
 import os
+import sys
 import threading
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # -----------------------------------------------------------------------
-# Guard: Windows-only + WinRT availability check
+# Guard: Windows-only
 # -----------------------------------------------------------------------
 if sys.platform != "win32":
     print("ContextCruncher requires Windows 10 or later.")
     sys.exit(1)
 
+# -----------------------------------------------------------------------
+# Logging setup (before anything else so all modules can use it)
+# -----------------------------------------------------------------------
+_LOG_DIR = os.path.join(os.environ.get("APPDATA", "."), "OCRClipStack")
+os.makedirs(_LOG_DIR, exist_ok=True)
+_LOG_PATH = os.path.join(_LOG_DIR, "app.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
+    handlers=[
+        logging.handlers.RotatingFileHandler(
+            _LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=2, encoding="utf-8"
+        ),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+log = logging.getLogger(__name__)
+log.info("ContextCruncher starting")
+
+# -----------------------------------------------------------------------
+# Singleton guard — only one instance allowed
+# -----------------------------------------------------------------------
+_MUTEX_NAME = "ContextCruncher_SingleInstance_Mutex"
+_instance_mutex = None  # Keep reference so GC doesn't release the mutex
+
+
+def _acquire_singleton() -> bool:
+    """Create a named Windows mutex.  Returns False if already running."""
+    global _instance_mutex
+    _instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+    last_err = ctypes.windll.kernel32.GetLastError()
+    if last_err == 183:  # ERROR_ALREADY_EXISTS
+        return False
+    return True
+
+
+if not _acquire_singleton():
+    try:
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "ContextCruncher läuft bereits.\n\nSiehe Systemtray.",
+            "ContextCruncher",
+            0x40,  # MB_ICONINFORMATION
+        )
+    except Exception:
+        pass
+    sys.exit(0)
+
+# -----------------------------------------------------------------------
+# DPI awareness — set once at startup (Bug #8)
+# -----------------------------------------------------------------------
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+# -----------------------------------------------------------------------
+# WinRT availability check
+# -----------------------------------------------------------------------
 from ocrclipstack.ocr import is_ocr_available
 
 if not is_ocr_available():
     try:
-        import ctypes
         ctypes.windll.user32.MessageBoxW(
             0,
-            "ContextCruncher requires Windows 10 (1903+) or Windows 11.\n\n"
-            "The package 'winrt' could not be loaded.\n"
-            "Please install it with:\n"
+            "ContextCruncher benötigt Windows 10 (1903+) oder Windows 11.\n\n"
+            "Das Paket 'winrt' konnte nicht geladen werden.\n"
+            "Bitte installieren mit:\n"
             "pip install winrt-Windows.Media.Ocr winrt-Windows.Graphics.Imaging",
-            "ContextCruncher - Error",
+            "ContextCruncher - Fehler",
             0x10,
         )
     except Exception:
@@ -54,7 +128,6 @@ from ocrclipstack.text_processor import minify_for_ai
 from ocrclipstack.clipboard_monitor import ClipboardMonitor
 from ocrclipstack.variant_picker import show_variant_picker
 
-# For accessing system clipboard outside of our own get/set
 import pyperclip
 from ocrclipstack.settings import open_settings
 
@@ -67,47 +140,39 @@ hotkey_bindings = get_hotkeys()
 hotkey_mgr: HotkeyManager | None = None
 clip_monitor: ClipboardMonitor | None = None
 
+# Bug #3 — prevent concurrent scans
+_scan_active = threading.Event()
+
 
 # -----------------------------------------------------------------------
 # Variant builder helpers
 # -----------------------------------------------------------------------
 
 def _build_variants(text: str, compact_text: str | None = None) -> list[Variant]:
-    """Build a list of variants for a text entry.
-
-    Always creates: Original, optionally Compact (for numbers),
-    then AI Level 1, 2, 3, and 4 — but only if they actually differ
-    and compress more than the previous level.
-    """
+    """Build the full list of variants for a text entry."""
     variants = [Variant(label="Original", text=text, saved_percent=0.0)]
 
-    # Compact (number normalization)
     if compact_text and compact_text != text:
         pct = ((len(text) - len(compact_text)) / len(text)) * 100.0 if len(text) > 0 else 0.0
         variants.append(Variant(label="Compact", text=compact_text, saved_percent=round(pct, 1)))
 
-    # Track previous savings for "meaningful difference" gating
     prev_saved = 0.0
 
-    # AI Level 1
     ai1, saved1 = minify_for_ai(text, level=1)
     if ai1 != text and saved1 > 2:
         variants.append(Variant(label="AI Lv.1", text=ai1, saved_percent=round(saved1, 1)))
         prev_saved = saved1
 
-    # AI Level 2
     ai2, saved2 = minify_for_ai(text, level=2)
     if saved2 > prev_saved + 3:
         variants.append(Variant(label="AI Lv.2", text=ai2, saved_percent=round(saved2, 1)))
         prev_saved = saved2
 
-    # AI Level 3
     ai3, saved3 = minify_for_ai(text, level=3)
     if saved3 > prev_saved + 3:
         variants.append(Variant(label="AI Lv.3", text=ai3, saved_percent=round(saved3, 1)))
         prev_saved = saved3
 
-    # AI Level 4 (Experimentell — Vokal-Entfernung)
     ai4, saved4 = minify_for_ai(text, level=4)
     if saved4 > prev_saved + 3:
         variants.append(Variant(label="⚠ Lv.4 Exp.", text=ai4, saved_percent=round(saved4, 1)))
@@ -121,35 +186,52 @@ def _build_variants(text: str, compact_text: str | None = None) -> list[Variant]
 
 def _on_scan() -> None:
     """Open overlay, OCR the selected area, push to stack."""
+
+    # Bug #3 — reject if a scan is already in progress
+    if _scan_active.is_set():
+        log.debug("_on_scan: scan already active, ignoring")
+        return
+
     def _do_scan() -> None:
-        def _handle_selection(image, bbox) -> None:
-            if image is None:
-                return
+        _scan_active.set()
+        try:
+            def _handle_selection(image, bbox) -> None:
+                if image is None:
+                    return
 
-            text = recognise(image)
-            if text:
-                compact = compact_variant(text)
-                variants = _build_variants(text, compact)
-                stack.push_variants(variants)
-                set_clipboard(text)
-                beep_success()
-                flash_region(bbox)
+                cfg = load_config()
+                lang = cfg.get("ocr_language", "auto")
+                text = recognise(image, language=lang)
 
-                n_variants = len(variants)
-                if n_variants > 1:
-                    toggle_key = hotkey_bindings.get("toggle_compact", "")
-                    hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-                    show_toast(f"✓ {stack.label()}\n{n_variants} variants available{hint}")
+                if text:
+                    compact = compact_variant(text)
+                    variants = _build_variants(text, compact)
+                    stack.push_variants(variants)
+                    set_clipboard(text)
+                    beep_success()
+                    flash_region(bbox)
+
+                    n_variants = len(variants)
+                    if n_variants > 1:
+                        toggle_key = hotkey_bindings.get("toggle_compact", "")
+                        hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
+                        show_toast(f"✓ {stack.label()}\n{n_variants} Varianten{hint}")
+                    else:
+                        show_toast(f"✓ {stack.label()}")
+                    log.info("Scan OK — %d variants, text length %d", len(variants), len(text))
                 else:
-                    show_toast(f"✓ {stack.label()}")
-            else:
-                beep_empty()
-                show_toast("⚠ No text recognized")
+                    beep_empty()
+                    show_toast("⚠ Kein Text erkannt")
+                    log.info("Scan returned no text")
 
-            if tray:
-                tray.update_menu()
+                if tray:
+                    tray.update_menu()
 
-        select_region(_handle_selection)
+            select_region(_handle_selection)
+        except Exception:
+            log.exception("_on_scan: unhandled error")
+        finally:
+            _scan_active.clear()
 
     threading.Thread(target=_do_scan, daemon=True).start()
 
@@ -157,7 +239,7 @@ def _on_scan() -> None:
 def _on_navigate_up() -> None:
     """Navigate to a newer entry."""
     text = stack.navigate(-1)
-    if text:
+    if text is not None:
         set_clipboard(text)
         beep_success()
         show_toast(stack.label())
@@ -168,7 +250,7 @@ def _on_navigate_up() -> None:
 def _on_navigate_down() -> None:
     """Navigate to an older entry."""
     text = stack.navigate(+1)
-    if text:
+    if text is not None:
         set_clipboard(text)
         beep_success()
         show_toast(stack.label())
@@ -188,7 +270,7 @@ def _on_toggle_compact() -> None:
 
     if len(entry.variants) <= 1:
         beep_empty()
-        show_toast("Only 1 variant available")
+        show_toast("Nur 1 Variante verfügbar")
         return
 
     if mode == "popup":
@@ -198,7 +280,7 @@ def _on_toggle_compact() -> None:
 
 
 def _cycle_variant() -> None:
-    """Cycle to the next variant (Option A)."""
+    """Cycle to the next variant."""
     result = stack.cycle_variant()
     if result is not None:
         set_clipboard(result.text)
@@ -217,7 +299,7 @@ def _cycle_variant() -> None:
 
 
 def _show_popup(entry) -> None:
-    """Show the variant picker popup (Option C)."""
+    """Show the variant picker popup."""
     def _on_variant_selected(idx: int):
         result = stack.set_variant(idx)
         if result:
@@ -236,41 +318,33 @@ def _show_popup(entry) -> None:
 
 
 def _on_ai_compact_from_clipboard() -> None:
-    """Reads normal clipboard, builds all variants, pushes to stack."""
+    """Reads clipboard, builds all variants, pushes to stack."""
     text = pyperclip.paste()
     if not text or not str(text).strip():
         beep_empty()
-        show_toast("⚠ Clipboard is empty")
+        show_toast("⚠ Zwischenablage ist leer")
         return
 
     text = str(text)
 
-    # Read the level from config
     cfg = load_config()
     lvl = cfg.get("ai_compact_level", 1)
     wrap = cfg.get("xml_wrap", False)
     tag = cfg.get("xml_tag", "context")
 
-    # Build all variants (now includes Level 4)
     compact = compact_variant(text)
     variants = _build_variants(text, compact)
 
-    # If XML wrapping is enabled, add a wrapped variant of the configured level
     if wrap and tag:
         xml_text, xml_saved = minify_for_ai(text, level=lvl, xml_wrap=True, xml_tag=tag)
         variants.append(Variant(label=f"XML Lv.{lvl}", text=xml_text, saved_percent=round(xml_saved, 1)))
 
-    # Push with all variants
     stack.push_variants(variants)
 
-    # Set the active variant to the user-configured level
     best_idx = 0
     for i, v in enumerate(variants):
-        # Match the configured level (handles Lv.1, Lv.2, Lv.3, Lv.4)
         if f"Lv.{lvl}" in v.label:
             best_idx = i
-            # Don't break — prefer the last match (XML wrapped version if available)
-    # Fallback: use the most compressed variant
     if best_idx == 0 and len(variants) > 1:
         best_idx = len(variants) - 1
 
@@ -281,8 +355,11 @@ def _on_ai_compact_from_clipboard() -> None:
         if active_v:
             set_clipboard(active_v.text)
             toggle_key = hotkey_bindings.get("toggle_compact", "")
-            hint = f"\n{hotkey_display_name(toggle_key)} = switch" if toggle_key else ""
-            show_toast(f"✓ {active_v.label} active (-{active_v.saved_percent:.0f}%)\n{len(variants)} variants{hint}")
+            hint = f"\n{hotkey_display_name(toggle_key)} = wechseln" if toggle_key else ""
+            show_toast(
+                f"✓ {active_v.label} aktiv (-{active_v.saved_percent:.0f}%)"
+                f"\n{len(variants)} Varianten{hint}"
+            )
 
     beep_success()
     if tray:
@@ -290,11 +367,7 @@ def _on_ai_compact_from_clipboard() -> None:
 
 
 def _handle_clipboard_change(text: str) -> str | None:
-    """Callback for ClipboardMonitor when auto-crunch is active.
-
-    Builds full variants, pushes to stack with toast feedback,
-    and returns the compressed text for the clipboard.
-    """
+    """Callback for ClipboardMonitor when auto-crunch is active."""
     cfg = load_config()
     if not cfg.get("auto_crunch", False):
         return None
@@ -303,13 +376,10 @@ def _handle_clipboard_change(text: str) -> str | None:
     wrap = cfg.get("xml_wrap", False)
     tag = cfg.get("xml_tag", "context")
 
-    # Build all variants and push to stack (same UX as OCR scan)
     compact = compact_variant(text)
     variants = _build_variants(text, compact)
-
     stack.push_variants(variants)
 
-    # Set active variant to the configured level
     best_idx = 0
     for i, v in enumerate(variants):
         if f"Lv.{lvl}" in v.label:
@@ -321,19 +391,18 @@ def _handle_clipboard_change(text: str) -> str | None:
     if entry:
         entry.active_index = best_idx
 
-    # Show toast so user knows variants are available
     n = len(variants)
     if n > 1:
         toggle_key = hotkey_bindings.get("toggle_compact", "")
         hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-        show_toast(f"🔄 Auto-Crunch: {n} variants{hint}")
+        show_toast(f"🔄 Auto-Crunch: {n} Varianten{hint}")
 
     if tray:
         tray.update_menu()
 
-    # Return the compressed text to write back to clipboard
     minified, _ = minify_for_ai(text, level=lvl, xml_wrap=wrap, xml_tag=tag)
     return minified
+
 
 def _on_toggle_auto_crunch(enabled: bool) -> None:
     """Callback when user toggles auto-crunch from tray."""
@@ -341,59 +410,58 @@ def _on_toggle_auto_crunch(enabled: bool) -> None:
     cfg["auto_crunch"] = enabled
     from ocrclipstack.config import save_config
     save_config(cfg)
-    
+
     if enabled and clip_monitor:
         clip_monitor.start()
-        show_toast("🔄 Auto-Crunch Monitor: ENABLED")
+        show_toast("🔄 Auto-Crunch: AKTIV")
     elif not enabled and clip_monitor:
         clip_monitor.stop()
-        show_toast("🔄 Auto-Crunch Monitor: DISABLED")
+        show_toast("🔄 Auto-Crunch: INAKTIV")
+
 
 # -----------------------------------------------------------------------
 # Tray callbacks
 # -----------------------------------------------------------------------
 
 def _on_select_entry(index: int) -> None:
-    """User clicked a history entry in the tray → copy original to clipboard."""
-    if 0 <= index < stack.size():
-        entry = stack._items[index]
+    """User clicked a history entry in the tray — copy original to clipboard."""
+    # Bug #9 — use public API instead of _items / _cursor
+    entry = stack.get_entry(index)
+    if entry is not None:
         set_clipboard(entry.original)
-        stack._cursor = index
+        stack.set_cursor(index)
         beep_success()
-        show_toast(f"📋 Copied: {entry.original[:40]}")
+        show_toast(f"📋 Kopiert: {entry.original[:40]}")
         if tray:
             tray.update_menu()
 
 
 def _on_select_compact(index: int) -> None:
     """User clicked the compact variant in the tray submenu."""
-    if 0 <= index < stack.size():
-        entry = stack._items[index]
-        if entry.compact:
-            set_clipboard(entry.compact)
-            entry.use_compact = True
-            stack._cursor = index
-            beep_success()
-            show_toast(f"🔢 Compact: {entry.compact[:40]}")
-            if tray:
-                tray.update_menu()
+    entry = stack.get_entry(index)
+    if entry is not None and entry.compact:
+        set_clipboard(entry.compact)
+        entry.use_compact = True
+        stack.set_cursor(index)
+        beep_success()
+        show_toast(f"🔢 Compact: {entry.compact[:40]}")
+        if tray:
+            tray.update_menu()
 
 
 def _on_clear() -> None:
     """Clear the entire stack."""
     stack.clear()
-    show_toast("🗑️ Stack cleared")
+    show_toast("🗑️ Stack geleert")
     if tray:
         tray.update_menu()
 
 
 def _on_settings() -> None:
-    """Open the settings dialog. Reloads hotkeys after save."""
+    """Open the settings dialog.  Reloads hotkeys after save."""
     def _after_save() -> None:
         global hotkey_bindings, hotkey_mgr
-        # Reload config.
         hotkey_bindings = get_hotkeys()
-        # Restart hotkey manager with new bindings.
         if hotkey_mgr:
             hotkey_mgr.stop()
         hotkey_mgr = HotkeyManager(
@@ -405,22 +473,24 @@ def _on_settings() -> None:
             hotkey_bindings=hotkey_bindings,
         )
         hotkey_mgr.start()
-        show_toast("✓ Settings saved\nHotkeys reloaded!")
+        show_toast("✓ Einstellungen gespeichert\nHotkeys neu geladen!")
         if tray:
             tray._hotkeys = hotkey_bindings
             tray.update_menu()
+        log.info("Settings saved and hotkeys reloaded")
 
     open_settings(on_save=_after_save)
 
 
 def _on_quit() -> None:
     """Shut everything down cleanly."""
+    log.info("Quit requested")
     if hotkey_mgr:
         hotkey_mgr.stop()
-    if tray:
-        tray.stop()
     if clip_monitor:
         clip_monitor.stop()
+    if tray:
+        tray.stop()
 
 
 # -----------------------------------------------------------------------
@@ -440,12 +510,14 @@ def main() -> None:
     )
     hotkey_mgr.start()
 
-    clip_monitor = ClipboardMonitor(check_interval=0.5, on_clipboard_changed=_handle_clipboard_change)
+    clip_monitor = ClipboardMonitor(
+        check_interval=0.5,
+        on_clipboard_changed=_handle_clipboard_change,
+    )
     cfg = load_config()
     if cfg.get("auto_crunch", False):
         clip_monitor.start()
 
-    # Tray is the main blocking loop.
     tray = TrayApp(
         stack=stack,
         on_scan=_on_scan,
@@ -458,7 +530,7 @@ def main() -> None:
         on_toggle_auto_crunch=_on_toggle_auto_crunch,
         hotkey_bindings=hotkey_bindings,
     )
-    tray.start()
+    tray.start()  # Blocking — runs pystray's message loop
 
 
 if __name__ == "__main__":

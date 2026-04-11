@@ -6,7 +6,7 @@
 
 **AI-optimized clipboard manager with screen OCR, token compression, and MCP server — no cloud, no admin, everything stays in RAM.**
 
-> ⚠️ **Early Alpha** — This project is under active development. Expect crashes, incomplete features, and breaking changes. Contributions and bug reports are welcome!
+> 🚀 **v0.1.0-alpha** — First alpha release. Core features are complete and crash-prone threading issues have been resolved. See the [Changelog](#-changelog) for details.
 
 ---
 
@@ -19,10 +19,11 @@
 - **Auto-Crunch Monitor** — Automatically compresses every clipboard copy in real-time with full variant support and visual feedback
 - **MCP Server** — Model Context Protocol integration lets AI agents read your screen, search clipboard history, and compress text directly
 - **Multi-Monitor** — Full DPI-aware support for multi-monitor setups
-- **Multi-Language** — Automatically detects installed Windows language packs and prioritizes EU languages (DE, EN, FR, ES, IT, PL, NL, PT)
+- **Multi-Language** — Automatically detects installed Windows language packs and prioritizes EU languages (DE, EN, FR, ES, IT, PL, NL, PT). Preferred language can be set in Settings.
 - **Visual & Audio Feedback** — Green flash overlay + system beep on successful scan; distinct tone when no text is found
 - **System Tray** — Runs quietly in the taskbar with a status menu showing the current entry and stack size
 - **Zero Footprint** — No files written, no network access, no admin privileges, no telemetry
+- **Singleton Guard** — Only one instance can run at a time; a second launch shows a friendly message instead of conflicting
 
 ---
 
@@ -53,6 +54,8 @@ python src/ocrclipstack/main.py
 | `Ctrl+Shift+↑` | Navigate to a newer stack entry |
 | `Ctrl+Shift+↓` | Navigate to an older stack entry |
 | `Ctrl+Shift+→` | Cycle through text variants (or open popup picker) |
+
+All hotkeys are fully customizable in Settings. Individual hotkeys can be cleared with the `×` button next to each binding.
 
 ---
 
@@ -115,7 +118,7 @@ ContextCruncher exposes an MCP server that AI agents can use directly. Register 
 
 ## 🌍 Language Support
 
-ContextCruncher uses the **native Windows OCR engine** (`Windows.Media.Ocr`). It automatically detects all language packs installed on your system and prioritizes European languages:
+ContextCruncher uses the **native Windows OCR engine** (`Windows.Media.Ocr`). It automatically detects all language packs installed on your system and prioritizes European languages. A preferred language can be pinned in Settings.
 
 | Language | Tag |
 |---|---|
@@ -139,8 +142,30 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 - ❌ **No network access** — All OCR processing is local. No networking libraries imported.
 - ❌ **No file I/O for scanned data** — All recognized text is stored exclusively in RAM.
 - ❌ **No admin privileges** — Runs entirely in user-space.
-- ❌ **No telemetry or logging** — Screen content is never logged, cached, or transmitted.
+- ✅ **Crash log** — A rotating `app.log` (max 2 MB) is written to `%APPDATA%\OCRClipStack\` to help diagnose issues. It never contains clipboard content — only event names and error traces.
 - ✅ **Open source** — MIT licensed. Audit the code yourself.
+
+---
+
+## 📋 Changelog
+
+### v0.1.0-alpha — First Alpha Release
+
+**Critical fixes:**
+- **Tkinter threading crash (was #1 cause of silent crashes)** — All UI windows (toast, flash, overlay, settings) now run as `Toplevel` children of a single persistent `tk.Tk()` root on a dedicated `TkUIThread`. Creating multiple `tk.Tk()` instances across threads was the primary source of `RuntimeError: main thread is not in main loop` crashes.
+- **Hotkey recorder listener leak** — The pynput `kb.Listener` used for recording hotkeys in Settings now correctly stops when only modifier keys are released (previously it ran forever, intercepting all keyboard input and breaking global hotkeys until restart).
+- **Double-scan crash** — Rapid double-pressing the scan hotkey no longer opens two overlays simultaneously. A lock prevents concurrent scans.
+
+**Other fixes:**
+- **Auto-Crunch ping-pong loop** — `_ignore_next_changes` is now incremented before writing back to the clipboard, preventing the monitor from re-processing its own writes.
+- **Stack navigation feedback** — Navigating at the boundary of the stack no longer triggers a success beep and toast when nothing changed.
+- **`saved_percent` accuracy** — Token savings percentage is now calculated after XML wrapping, not before.
+- **OCR language setting** — The language preference in Settings is now actually passed to the OCR engine (it was previously ignored).
+- **DPI awareness** — Set once at application startup instead of on every scan call.
+- **Singleton guard** — A Windows named mutex prevents two instances from running simultaneously and conflicting on hotkeys.
+- **Logging** — Structured rotating log written to `%APPDATA%\OCRClipStack\app.log` for crash diagnosis.
+- **Public API** — Internal `stack._items` / `stack._cursor` access replaced with `get_entry()` / `set_cursor()`.
+- **Settings UX** — Added `×` clear button for each hotkey binding.
 
 ---
 
@@ -149,8 +174,6 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 ### 🖼️ Image Cruncher (Planned)
 
 Vision models like GPT-4o and Claude charge per **image tile** (typically 512×512 px). A 520×520 image costs 4 tiles; a smart resize to 512×512 drops it to 1 tile — same quality, fraction of the cost.
-
-Most AIs also downsample internally (Claude caps at 1560px, GPT-4o at 2048px), so uploading raw 4000px smartphone photos wastes bandwidth and money.
 
 **Planned features:**
 
@@ -161,27 +184,13 @@ Most AIs also downsample internally (Claude caps at 1560px, GPT-4o at 2048px), s
 | **Format Conversion** | PNG/TIFF → WebP or JPEG | Faster upload, less bandwidth |
 | **Metadata Stripping** | Removes EXIF data (GPS, camera info) | Privacy + smaller file |
 
-**Example flow:** User copies a screenshot → presses hotkey → ContextCruncher resizes to 1560px, compresses to 80% WebP, strips EXIF → `"✓ Image crunched (2.4MB → 180KB)"` → ready to paste into any AI chat.
-
-> ⚠️ **Not recommended** for images with very fine text (e.g. large schematics, dense spreadsheets) — aggressive compression can hurt OCR quality.
-
 ### 🖥️ Desktop Application (Planned)
-
-The current version is a tray-only tool. A full windowed application with a proper GUI is planned:
 
 - **Visual clipboard history** with thumbnails and text previews
 - **Side-by-side variant comparison** — see Original vs. AI Lv.3 at a glance
 - **Image cruncher controls** — resize sliders, format picker, quality preview
 - **Drag & drop** — drop files or images directly into the window
 - **Statistics dashboard** — track total tokens saved, compression ratios over time
-
-### 🐛 Known Issues (Alpha)
-
-- Application may crash in certain edge cases — stability improvements are in progress
-- Some hotkey combinations may not register reliably on all keyboard layouts
-- Auto-Crunch monitor can interfere with clipboard operations in some applications
-- Level 4 (Experimental) produces output that most AIs cannot interpret correctly
-- UI threading model needs migration to a single-thread message queue for full stability
 
 ---
 
@@ -221,6 +230,7 @@ pyinstaller build.spec
 - **Windows only** — Requires Windows 10 (version 1903+) or Windows 11 for the native OCR engine
 - **Language packs required** — OCR quality depends on the Windows language packs installed
 - **No persistent history** — The stack is cleared when the application exits (by design)
+- **Level 4 compression** — Experimental vowel-removal mode produces output most AIs cannot interpret correctly
 
 ---
 

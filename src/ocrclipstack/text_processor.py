@@ -90,15 +90,14 @@ def minify_for_ai(text: str, level: int = 1, xml_wrap: bool = False, xml_tag: st
         text = re.sub(r'[aeiouAEIOUäöüÄÖÜ]', '', text)
 
     text = text.strip()
-    
-    # Statistics
-    new_len = len(text)
-    
+
     if xml_wrap and xml_tag:
         text = f"<{xml_tag}>\n{text}\n</{xml_tag}>"
 
+    # FIX (Bug #6): compute saved_percent AFTER xml_wrap so the reported
+    # figure reflects the actual final output length, not the pre-wrap length.
     saved_percent = 0.0
     if original_len > 0:
-        saved_percent = ((original_len - new_len) / original_len) * 100.0
-        
+        saved_percent = ((original_len - len(text)) / original_len) * 100.0
+
     return text, saved_percent

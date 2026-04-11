@@ -53,8 +53,13 @@ def is_ocr_available() -> bool:
 # Language selection
 # ---------------------------------------------------------------------------
 
-def _pick_language():
-    """Choose the best available OCR language, preferring EU languages."""
+def _pick_language(preferred: str | None = None):
+    """Choose the best available OCR language.
+
+    FIX (Bug #7): *preferred* is now honoured.  Pass the value of
+    ``config["ocr_language"]``; ``"auto"`` or ``None`` falls back to the
+    EU-priority list as before.
+    """
     available = _OcrEngine.available_recognizer_languages
     # Build a tag→Language lookup (lowercase tags).
     by_tag: dict[str, object] = {}
@@ -66,12 +71,22 @@ def _pick_language():
         if primary not in by_tag:
             by_tag[primary] = lang
 
-    # Walk the priority list and return the first match.
+    # Honour user preference when explicitly set (not "auto" / empty).
+    if preferred and preferred.lower() not in ("auto", ""):
+        key = preferred.lower()
+        if key in by_tag:
+            return by_tag[key]
+        # Try primary subtag (e.g. "de" if user set "de-DE").
+        primary = key.split("-")[0]
+        if primary in by_tag:
+            return by_tag[primary]
+
+    # Fall back to EU priority list.
     for tag in _EU_LANGUAGE_PRIORITY:
         if tag in by_tag:
             return by_tag[tag]
 
-    # Fallback: English (broad match) → first available → None.
+    # Last resort: English → first available → None.
     if "en" in by_tag:
         return by_tag["en"]
     if available:
@@ -132,9 +147,9 @@ def _upscale_for_ocr(image: Image) -> Image:
     return image.resize((new_w, new_h), resample=3)  # 3 = LANCZOS
 
 
-async def _recognise_async(image: Image) -> str:
+async def _recognise_async(image: Image, language: str = "auto") -> str:
     """Run OCR on *image* and return the recognised text."""
-    lang = _pick_language()
+    lang = _pick_language(preferred=language)
     if lang is not None:
         engine = _OcrEngine.try_create_from_language(lang)
     else:
@@ -164,8 +179,12 @@ async def _recognise_async(image: Image) -> str:
     return cleaned
 
 
-def recognise(image: Image) -> str:
+def recognise(image: Image, language: str = "auto") -> str:
     """Synchronous wrapper — run OCR on a PIL Image and return the text.
+
+    *language* is a BCP-47 tag (e.g. ``"de"``, ``"en-US"``) or ``"auto"``
+    to use the EU-priority heuristic.  Defaults to ``"auto"`` for backward
+    compatibility.
 
     Returns an empty string on any error (no crash).
     """
@@ -174,7 +193,7 @@ def recognise(image: Image) -> str:
     try:
         loop = asyncio.new_event_loop()
         try:
-            return loop.run_until_complete(_recognise_async(image))
+            return loop.run_until_complete(_recognise_async(image, language=language))
         finally:
             loop.close()
     except Exception:
