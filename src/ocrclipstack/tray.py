@@ -1,0 +1,251 @@
+"""
+System tray icon and context menu — Greenshot-inspired.
+
+Shows scan action with hotkey hint, recent history entries (clickable),
+compact submenus for number entries, settings shortcut, and exit.
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+from typing import Callable
+
+from PIL import Image, ImageDraw
+import pystray
+
+from ocrclipstack.stack import TextStack
+from ocrclipstack.config import hotkey_display_name
+
+_ICON_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icon.png")
+_MAX_HISTORY_ITEMS = 8  # Show at most this many items in the tray menu.
+
+
+def _generate_icon(size: int = 64) -> Image.Image:
+    """Programmatically generate a simple green camera/text icon."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    margin = size // 8
+    draw.rounded_rectangle(
+        [margin, margin + size // 6, size - margin, size - margin],
+        radius=size // 10,
+        fill=(217, 6, 13, 255),  # #D9060D
+    )
+    cx, cy = size // 2, size // 2 + size // 16
+    r = size // 6
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 255, 255, 220))
+    draw.ellipse(
+        [cx - r // 2, cy - r // 2, cx + r // 2, cy + r // 2],
+        fill=(217, 6, 13, 255),
+    )
+    bw = size // 4
+    bh = size // 8
+    bx = size // 2 - bw // 2
+    by = margin
+    draw.rectangle([bx, by, bx + bw, by + bh], fill=(217, 6, 13, 255))
+    return img
+
+
+def _load_icon() -> Image.Image:
+    abs_path = os.path.normpath(_ICON_PATH)
+    if os.path.isfile(abs_path):
+        try:
+            return Image.open(abs_path).convert("RGBA")
+        except Exception:
+            pass
+    return _generate_icon()
+
+
+def _truncate(text: str, max_len: int = 45) -> str:
+    """Truncate text for menu display."""
+    text = text.replace("\n", " ").strip()
+    if len(text) > max_len:
+        return text[:max_len - 1] + "…"
+    return text
+
+
+class TrayApp:
+    """System-tray wrapper around pystray — Greenshot-style."""
+
+    def __init__(
+        self,
+        stack: TextStack,
+        on_scan: Callable[[], None],
+        on_clear: Callable[[], None],
+        on_quit: Callable[[], None],
+        on_settings: Callable[[], None],
+        on_select_entry: Callable[[int], None],
+        on_select_compact: Callable[[int], None],
+        on_ai_compact: Callable[[], None],
+        on_toggle_auto_crunch: Callable[[bool], None] | None = None,
+        hotkey_bindings: dict[str, str] | None = None,
+    ) -> None:
+        self._stack = stack
+        self._on_scan = on_scan
+        self._on_clear = on_clear
+        self._on_quit = on_quit
+        self._on_settings = on_settings
+        self._on_select_entry = on_select_entry
+        self._on_select_compact = on_select_compact
+        self._on_ai_compact = on_ai_compact
+        self._on_toggle_auto_crunch = on_toggle_auto_crunch
+        self._hotkeys = hotkey_bindings or {}
+        self._icon: pystray.Icon | None = None
+        
+        # Load initial config states
+        from ocrclipstack.config import load_config
+        cfg = load_config()
+        self._auto_crunch_enabled = cfg.get("auto_crunch", False)
+
+    # ------------------------------------------------------------------
+    # Menu builder
+    # ------------------------------------------------------------------
+
+    def _build_menu(self) -> pystray.Menu:
+        items: list[pystray.MenuItem | pystray.Menu] = []
+
+        # ── Primary action: Scan ──
+        scan_key = self._hotkeys.get("scan", "")
+        scan_label = f"📸  Bereich scannen"
+        if scan_key:
+            scan_label += f"    {hotkey_display_name(scan_key)}"
+        items.append(pystray.MenuItem(scan_label, self._handle_scan, default=True))
+
+        ai_key = self._hotkeys.get("ai_compact", "")
+        ai_label = f"🤖  Clipboard KI-komprimieren"
+        if ai_key:
+            ai_label += f"    {hotkey_display_name(ai_key)}"
+        items.append(pystray.MenuItem(ai_label, self._handle_ai_compact))
+
+        # ── Auto-Crunch Toggle ──
+        ac_mark = "✅" if self._auto_crunch_enabled else "❌"
+        items.append(pystray.MenuItem(f"🔄  Auto-Crunch Monitor: {ac_mark}", self._handle_toggle_auto_crunch))
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # ── History entries ──
+        size = self._stack.size()
+        if size == 0:
+            items.append(pystray.MenuItem("... stack is empty ...", lambda: None, enabled=False))
+        else:
+            items.append(pystray.MenuItem(
+                f"📋  Recent scans ({size}):",
+                None, enabled=False,
+            ))
+            # Helper closures to bypass pystray's strict parameter reflection
+            def make_entry_cb(j: int):
+                return lambda icon, item: self._on_select_entry(j)
+
+            def make_compact_cb(j: int):
+                return lambda icon, item: self._on_select_compact(j)
+
+            # Show the most recent entries.
+            for i in range(min(size, _MAX_HISTORY_ITEMS)):
+                entry = self._stack._items[i]
+                preview = _truncate(entry.original)
+
+                if entry.compact is not None:
+                    # Entry has compact variant → submenu.
+                    compact_preview = _truncate(entry.compact)
+                    sub = pystray.Menu(
+                        pystray.MenuItem(
+                            f"📄  Original: {preview}",
+                            make_entry_cb(i),
+                        ),
+                        pystray.MenuItem(
+                            f"🔢  Compact: {compact_preview}",
+                            make_compact_cb(i),
+                        ),
+                    )
+                    marker = " ✎" if entry.compact else ""
+                    items.append(pystray.MenuItem(
+                        f"   {i + 1}. {preview}{marker}",
+                        sub,
+                    ))
+                else:
+                    # Regular entry → click to copy.
+                    items.append(pystray.MenuItem(
+                        f"   {i + 1}. {preview}",
+                        make_entry_cb(i),
+                    ))
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # ── Stack clear ──
+        if size > 0:
+            items.append(pystray.MenuItem(
+                f"🗑️  Clear Stack ({size} entries)",
+                self._handle_clear,
+            ))
+            items.append(pystray.Menu.SEPARATOR)
+
+        # ── Settings ──
+        items.append(pystray.MenuItem("⚙  Settings...", self._handle_settings))
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # ── Quit ──
+        items.append(pystray.MenuItem("❌  Quit", self._handle_quit))
+
+        return pystray.Menu(*items)
+
+    # ------------------------------------------------------------------
+    # Handlers
+    # ------------------------------------------------------------------
+
+    def _handle_scan(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_scan:
+            self._on_scan()
+
+    def _handle_ai_compact(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_ai_compact:
+            self._on_ai_compact()
+
+    def _handle_toggle_auto_crunch(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        self._auto_crunch_enabled = not self._auto_crunch_enabled
+        if self._on_toggle_auto_crunch:
+            self._on_toggle_auto_crunch(self._auto_crunch_enabled)
+        self.update_menu()
+
+    def _handle_clear(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_clear:
+            self._on_clear()
+            self.update_menu()
+
+    def _handle_settings(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_settings:
+            # Run in a thread so the tray stays responsive.
+            threading.Thread(target=self._on_settings, daemon=True).start()
+
+    def _handle_quit(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_quit:
+            self._on_quit()
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        image = _load_icon()
+        self._icon = pystray.Icon(
+            name="ContextCruncher",
+            icon=image,
+            title=f"ContextCruncher - {self._stack.size()} entries",
+            menu=self._build_menu(),
+        )
+        self._icon.run()
+
+    def stop(self) -> None:
+        if self._icon:
+            self._icon.stop()
+
+    def update_menu(self) -> None:
+        if self._icon:
+            self._icon.title = f"ContextCruncher - {self._stack.size()} entries"
+            self._icon.menu = self._build_menu()
+            self._icon.update_menu()
+
+    def start_threaded(self) -> threading.Thread:
+        t = threading.Thread(target=self.start, daemon=True)
+        t.start()
+        return t
