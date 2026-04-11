@@ -1,8 +1,7 @@
 # 🦖 ContextCruncher
 
 <div align="center">
-  <img src="assets/CC.png" alt="ContextCruncher Logo" width="45%" />
-  <img src="assets/CCPure.png" alt="ContextCruncher Pure Logo" width="45%" />
+  <img src="assets/CC.png" alt="ContextCruncher Logo" width="100%" />
 </div>
 
 **AI-optimized clipboard manager with screen OCR, token compression, and MCP server — no cloud, no admin, everything stays in RAM.**
