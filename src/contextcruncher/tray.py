@@ -1,4 +1,4 @@
-"""
+﻿"""
 System tray icon and context menu — Greenshot-inspired.
 
 Shows scan action with hotkey hint, recent history entries (clickable),
@@ -14,8 +14,8 @@ from typing import Callable
 from PIL import Image, ImageDraw
 import pystray
 
-from ocrclipstack.stack import TextStack
-from ocrclipstack.config import hotkey_display_name
+from contextcruncher.stack import TextStack
+from contextcruncher.config import hotkey_display_name
 
 _ICON_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icon.png")
 _MAX_HISTORY_ITEMS = 8  # Show at most this many items in the tray menu.
@@ -93,7 +93,7 @@ class TrayApp:
         self._icon: pystray.Icon | None = None
         
         # Load initial config states
-        from ocrclipstack.config import load_config
+        from contextcruncher.config import load_config
         cfg = load_config()
         self._auto_crunch_enabled = cfg.get("auto_crunch", False)
 
@@ -106,13 +106,13 @@ class TrayApp:
 
         # ── Primary action: Scan ──
         scan_key = self._hotkeys.get("scan", "")
-        scan_label = f"📸  Bereich scannen"
+        scan_label = f"📸  Scan Region"
         if scan_key:
             scan_label += f"    {hotkey_display_name(scan_key)}"
         items.append(pystray.MenuItem(scan_label, self._handle_scan, default=True))
 
         ai_key = self._hotkeys.get("ai_compact", "")
-        ai_label = f"🤖  Clipboard KI-komprimieren"
+        ai_label = f"🤖  AI-Crunch Clipboard"
         if ai_key:
             ai_label += f"    {hotkey_display_name(ai_key)}"
         items.append(pystray.MenuItem(ai_label, self._handle_ai_compact))

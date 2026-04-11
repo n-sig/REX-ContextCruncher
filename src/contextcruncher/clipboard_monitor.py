@@ -30,9 +30,6 @@ class ClipboardMonitor:
         
         self.get_seq = ctypes.windll.user32.GetClipboardSequenceNumber
         self.last_seq = self.get_seq()
-        
-        # A flag so we know the next N clipboard changes are our own writes
-        self._ignore_next_changes = 0
 
     def start(self) -> None:
         if self.is_running:
@@ -57,11 +54,6 @@ class ClipboardMonitor:
                 # The clipboard changed!
                 self.last_seq = current_seq
 
-                if self._ignore_next_changes > 0:
-                    # Ignore the change since we just wrote to the clipboard ourselves.
-                    self._ignore_next_changes -= 1
-                    continue
-
                 if not self.on_clipboard_changed:
                     continue
                 
@@ -82,20 +74,14 @@ class ClipboardMonitor:
                 
                 if new_text is not None and new_text != str(text):
                     # Write the minified text back.
-                    # FIX (Bug #4): increment _ignore_next_changes BEFORE writing
-                    # so the monitor skips its own write on the very next poll.
-                    # pyperclip.copy() can trigger 1–2 sequence-number increments
-                    # depending on the clipboard implementation; setting 2 is safe.
                     try:
-                        self._ignore_next_changes += 2
                         pyperclip.copy(new_text)
 
                         # Give the OS a moment to settle, then update last_seq.
                         time.sleep(0.05)
                         self.last_seq = self.get_seq()
                     except Exception:
-                        # If the write failed, undo the counter increment.
-                        self._ignore_next_changes = max(0, self._ignore_next_changes - 2)
+                        pass
                         
             except Exception as e:
                 # Catch-all to prevent monitor thread from crashing

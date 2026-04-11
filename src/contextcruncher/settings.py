@@ -1,4 +1,4 @@
-"""
+﻿"""
 settings.py — GUI settings dialog with live hotkey recorder.
 
 FIX (Bug #1): Dialog is now a tk.Toplevel owned by the global TkManager
@@ -28,7 +28,7 @@ from typing import Callable
 from PIL import Image, ImageTk
 from pynput import keyboard as kb
 
-from ocrclipstack.config import (
+from contextcruncher.config import (
     load_config,
     save_config,
     hotkey_display_name,
@@ -37,7 +37,7 @@ from ocrclipstack.config import (
     set_autostart,
     get_autostart,
 )
-from ocrclipstack.feedback import get_tk_manager
+from contextcruncher.feedback import get_tk_manager
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class _HotkeyField(tk.Frame):
 
         self._label = tk.Label(
             self,
-            text=hotkey_display_name(initial) if initial else "Nicht belegt",
+            text=hotkey_display_name(initial) if initial else "Not assigned",
             font=("Segoe UI", 11),
             fg=_FG,
             bg=_BG_FIELD,
@@ -112,7 +112,7 @@ class _HotkeyField(tk.Frame):
         """Clear the binding to empty (no hotkey)."""
         self._cancel_recording()
         self._combo = ""
-        self._label.config(text="Nicht belegt", bg=_BG_FIELD, fg=_FG_DIM)
+        self._label.config(text="Not assigned", bg=_BG_FIELD, fg=_FG_DIM)
 
     def cleanup(self) -> None:
         """Stop any active listener — call before the parent dialog is destroyed."""
@@ -129,7 +129,7 @@ class _HotkeyField(tk.Frame):
             return
         self._recording = True
         self._pressed_keys.clear()
-        self._label.config(text="⌨ Tasten drücken…", bg=_ACCENT_BLUE, fg="#1e1e2e")
+        self._label.config(text="⌨ Press keys…", bg=_ACCENT_BLUE, fg="#1e1e2e")
 
         self._listener = kb.Listener(
             on_press=self._on_key_press,
@@ -183,7 +183,7 @@ class _HotkeyField(tk.Frame):
         else:
             # Nothing valid — keep old combo
             self._label.config(
-                text=hotkey_display_name(self._combo) if self._combo else "Nicht belegt",
+                text=hotkey_display_name(self._combo) if self._combo else "Not assigned",
                 bg=_BG_FIELD,
                 fg=_FG,
             )
@@ -196,7 +196,7 @@ class _HotkeyField(tk.Frame):
             self._listener.stop()
             self._listener = None
         self._label.config(
-            text=hotkey_display_name(self._combo) if self._combo else "Nicht belegt",
+            text=hotkey_display_name(self._combo) if self._combo else "Not assigned",
             bg=_BG_FIELD,
             fg=_FG,
         )
@@ -323,7 +323,7 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
 
         tk.Label(
             hotkey_frame,
-            text="Klicke ein Feld und drücke die gewünschte Tastenkombination.  ×  = Löschen.",
+            text="Click a field and press the desired key combination.  ×  = Clear.",
             font=("Segoe UI", 9), fg=_FG_DIM, bg=_BG,
         ).pack(pady=(8, 0))
 
@@ -354,7 +354,7 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         autostart_row = tk.Frame(general_frame, bg=_BG)
         autostart_row.pack(fill=tk.X, pady=3)
         tk.Checkbutton(
-            autostart_row, text="  Start mit Windows",
+            autostart_row, text="  Start with Windows",
             variable=autostart_var, font=("Segoe UI", 11),
             fg=_FG, bg=_BG, selectcolor=_BG_FIELD,
             activebackground=_BG, activeforeground=_FG,
@@ -395,7 +395,7 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         xml_wrap_row = tk.Frame(general_frame, bg=_BG)
         xml_wrap_row.pack(fill=tk.X, pady=(10, 3))
         tk.Checkbutton(
-            xml_wrap_row, text="  XML Tag Formatting (z.B. <context>)",
+            xml_wrap_row, text="  XML Tag Formatting (e.g. <context>)",
             variable=xml_wrap_var, font=("Segoe UI", 11),
             fg=_FG, bg=_BG, selectcolor=_BG_FIELD,
             activebackground=_BG, activeforeground=_FG,
@@ -474,14 +474,14 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         win.protocol("WM_DELETE_WINDOW", _cancel)
 
         tk.Button(
-            btn_frame, text="  ✓ Speichern  ", command=_save,
+            btn_frame, text="  ✓ Save  ", command=_save,
             font=("Segoe UI", 11, "bold"), fg="#1e1e2e", bg=_ACCENT,
             activebackground="#94e2d5", activeforeground="#1e1e2e",
             bd=0, padx=20, pady=8, cursor="hand2",
         ).pack(side=tk.LEFT, padx=8)
 
         tk.Button(
-            btn_frame, text="  ✕ Abbrechen  ", command=_cancel,
+            btn_frame, text="  ✕ Cancel  ", command=_cancel,
             font=("Segoe UI", 11), fg=_FG, bg=_BTN_BG,
             activebackground=_BTN_HOVER, activeforeground=_FG,
             bd=0, padx=20, pady=8, cursor="hand2",

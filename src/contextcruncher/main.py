@@ -11,7 +11,7 @@ FIXES applied:
              get_entry) instead of accessing _items / _cursor directly.
   Bug #10 — Windows named-mutex singleton guard: second instance shows a
              message box and exits.
-  Bug #11 — Structured logging to %APPDATA%/OCRClipStack/app.log.
+  Bug #11 — Structured logging to %APPDATA%/ContextCruncher/app.log.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ if sys.platform != "win32":
 # -----------------------------------------------------------------------
 # Logging setup (before anything else so all modules can use it)
 # -----------------------------------------------------------------------
-_LOG_DIR = os.path.join(os.environ.get("APPDATA", "."), "OCRClipStack")
+_LOG_DIR = os.path.join(os.environ.get("APPDATA", "."), "ContextCruncher")
 os.makedirs(_LOG_DIR, exist_ok=True)
 _LOG_PATH = os.path.join(_LOG_DIR, "app.log")
 
@@ -73,7 +73,7 @@ if not _acquire_singleton():
     try:
         ctypes.windll.user32.MessageBoxW(
             0,
-            "ContextCruncher läuft bereits.\n\nSiehe Systemtray.",
+            "ContextCruncher is already running.\n\nSee system tray.",
             "ContextCruncher",
             0x40,  # MB_ICONINFORMATION
         )
@@ -95,17 +95,17 @@ except Exception:
 # -----------------------------------------------------------------------
 # WinRT availability check
 # -----------------------------------------------------------------------
-from ocrclipstack.ocr import is_ocr_available
+from contextcruncher.ocr import is_ocr_available
 
 if not is_ocr_available():
     try:
         ctypes.windll.user32.MessageBoxW(
             0,
-            "ContextCruncher benötigt Windows 10 (1903+) oder Windows 11.\n\n"
-            "Das Paket 'winrt' konnte nicht geladen werden.\n"
-            "Bitte installieren mit:\n"
+            "ContextCruncher requires Windows 10 (1903+) or Windows 11.\n\n"
+            "The 'winrt' package could not be loaded.\n"
+            "Please install with:\n"
             "pip install winrt-Windows.Media.Ocr winrt-Windows.Graphics.Imaging",
-            "ContextCruncher - Fehler",
+            "ContextCruncher - Error",
             0x10,
         )
     except Exception:
@@ -115,21 +115,22 @@ if not is_ocr_available():
 # -----------------------------------------------------------------------
 # Imports
 # -----------------------------------------------------------------------
-from ocrclipstack.stack import TextStack, Variant
-from ocrclipstack.overlay import select_region
-from ocrclipstack.ocr import recognise
-from ocrclipstack.clipboard import set_clipboard
-from ocrclipstack.feedback import beep_success, beep_empty, flash_region, show_toast
-from ocrclipstack.hotkeys import HotkeyManager
-from ocrclipstack.tray import TrayApp
-from ocrclipstack.normalize import compact_variant
-from ocrclipstack.config import get_hotkeys, hotkey_display_name, load_config
-from ocrclipstack.text_processor import minify_for_ai
-from ocrclipstack.clipboard_monitor import ClipboardMonitor
-from ocrclipstack.variant_picker import show_variant_picker
+from contextcruncher.stack import TextStack, Variant
+from contextcruncher.overlay import select_region
+from contextcruncher.ocr import recognise
+from contextcruncher.clipboard import set_clipboard
+from contextcruncher.feedback import beep_success, beep_empty, flash_region, show_toast
+from contextcruncher.hotkeys import HotkeyManager
+from contextcruncher.tray import TrayApp
+from contextcruncher.normalize import compact_variant
+from contextcruncher.config import get_hotkeys, hotkey_display_name, load_config
+from contextcruncher.text_processor import minify_for_ai
+from contextcruncher.clipboard_monitor import ClipboardMonitor
+from contextcruncher.variant_picker import show_variant_picker
+from contextcruncher.ui.heatmap import show_heatmap
 
 import pyperclip
-from ocrclipstack.settings import open_settings
+from contextcruncher.settings import open_settings
 
 # -----------------------------------------------------------------------
 # Global state
@@ -151,31 +152,32 @@ _scan_active = threading.Event()
 def _build_variants(text: str, compact_text: str | None = None) -> list[Variant]:
     """Build the full list of variants for a text entry."""
     variants = [Variant(label="Original", text=text, saved_percent=0.0)]
+    seen_texts = {text}
 
-    if compact_text and compact_text != text:
+    if compact_text and compact_text not in seen_texts:
         pct = ((len(text) - len(compact_text)) / len(text)) * 100.0 if len(text) > 0 else 0.0
         variants.append(Variant(label="Compact", text=compact_text, saved_percent=round(pct, 1)))
-
-    prev_saved = 0.0
+        seen_texts.add(compact_text)
 
     ai1, saved1 = minify_for_ai(text, level=1)
-    if ai1 != text and saved1 > 2:
+    if ai1 not in seen_texts:
         variants.append(Variant(label="AI Lv.1", text=ai1, saved_percent=round(saved1, 1)))
-        prev_saved = saved1
+        seen_texts.add(ai1)
 
     ai2, saved2 = minify_for_ai(text, level=2)
-    if saved2 > prev_saved + 3:
+    if ai2 not in seen_texts:
         variants.append(Variant(label="AI Lv.2", text=ai2, saved_percent=round(saved2, 1)))
-        prev_saved = saved2
+        seen_texts.add(ai2)
 
     ai3, saved3 = minify_for_ai(text, level=3)
-    if saved3 > prev_saved + 3:
+    if ai3 not in seen_texts:
         variants.append(Variant(label="AI Lv.3", text=ai3, saved_percent=round(saved3, 1)))
-        prev_saved = saved3
+        seen_texts.add(ai3)
 
     ai4, saved4 = minify_for_ai(text, level=4)
-    if saved4 > prev_saved + 3:
+    if ai4 not in seen_texts:
         variants.append(Variant(label="⚠ Lv.4 Exp.", text=ai4, saved_percent=round(saved4, 1)))
+        seen_texts.add(ai4)
 
     return variants
 
@@ -215,13 +217,13 @@ def _on_scan() -> None:
                     if n_variants > 1:
                         toggle_key = hotkey_bindings.get("toggle_compact", "")
                         hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-                        show_toast(f"✓ {stack.label()}\n{n_variants} Varianten{hint}")
+                        show_toast(f"✓ {stack.label()}\n{n_variants} Variants{hint}")
                     else:
                         show_toast(f"✓ {stack.label()}")
                     log.info("Scan OK — %d variants, text length %d", len(variants), len(text))
                 else:
                     beep_empty()
-                    show_toast("⚠ Kein Text erkannt")
+                    show_toast("⚠ No text recognized")
                     log.info("Scan returned no text")
 
                 if tray:
@@ -270,7 +272,7 @@ def _on_toggle_compact() -> None:
 
     if len(entry.variants) <= 1:
         beep_empty()
-        show_toast("Nur 1 Variante verfügbar")
+        show_toast("Only 1 variant available")
         return
 
     if mode == "popup":
@@ -322,7 +324,7 @@ def _on_ai_compact_from_clipboard() -> None:
     text = pyperclip.paste()
     if not text or not str(text).strip():
         beep_empty()
-        show_toast("⚠ Zwischenablage ist leer")
+        show_toast("⚠ Clipboard is empty")
         return
 
     text = str(text)
@@ -355,10 +357,10 @@ def _on_ai_compact_from_clipboard() -> None:
         if active_v:
             set_clipboard(active_v.text)
             toggle_key = hotkey_bindings.get("toggle_compact", "")
-            hint = f"\n{hotkey_display_name(toggle_key)} = wechseln" if toggle_key else ""
+            hint = f"\n{hotkey_display_name(toggle_key)} = switch" if toggle_key else ""
             show_toast(
-                f"✓ {active_v.label} aktiv (-{active_v.saved_percent:.0f}%)"
-                f"\n{len(variants)} Varianten{hint}"
+                f"✓ {active_v.label} active (-{active_v.saved_percent:.0f}%)"
+                f"\n{len(variants)} Variants{hint}"
             )
 
     beep_success()
@@ -366,11 +368,19 @@ def _on_ai_compact_from_clipboard() -> None:
         tray.update_menu()
 
 
+def _on_show_heatmap() -> None:
+    """Show the token heatmap for the current clipboard contents."""
+    text = pyperclip.paste()
+    if not text or not str(text).strip():
+        beep_empty()
+        show_toast("⚠ Clipboard is empty")
+        return
+    show_heatmap(str(text))
+
+
 def _handle_clipboard_change(text: str) -> str | None:
-    """Callback for ClipboardMonitor when auto-crunch is active."""
+    """Callback for ClipboardMonitor. Always adds to stack, auto-crunches if enabled."""
     cfg = load_config()
-    if not cfg.get("auto_crunch", False):
-        return None
 
     lvl = cfg.get("ai_compact_level", 1)
     wrap = cfg.get("xml_wrap", False)
@@ -392,13 +402,19 @@ def _handle_clipboard_change(text: str) -> str | None:
         entry.active_index = best_idx
 
     n = len(variants)
+    
+    if tray:
+        tray.update_menu()
+
+    # If auto-crunch is disabled, don't modify the OS clipboard
+    if not cfg.get("auto_crunch", False):
+        return None
+
+    # Auto-crunch is enabled, notify user and return minified text
     if n > 1:
         toggle_key = hotkey_bindings.get("toggle_compact", "")
         hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-        show_toast(f"🔄 Auto-Crunch: {n} Varianten{hint}")
-
-    if tray:
-        tray.update_menu()
+        show_toast(f"🔄 Auto-Crunch: {n} Variants{hint}")
 
     minified, _ = minify_for_ai(text, level=lvl, xml_wrap=wrap, xml_tag=tag)
     return minified
@@ -408,15 +424,15 @@ def _on_toggle_auto_crunch(enabled: bool) -> None:
     """Callback when user toggles auto-crunch from tray."""
     cfg = load_config()
     cfg["auto_crunch"] = enabled
-    from ocrclipstack.config import save_config
+    from contextcruncher.config import save_config
     save_config(cfg)
 
-    if enabled and clip_monitor:
-        clip_monitor.start()
-        show_toast("🔄 Auto-Crunch: AKTIV")
-    elif not enabled and clip_monitor:
-        clip_monitor.stop()
-        show_toast("🔄 Auto-Crunch: INAKTIV")
+    # The monitor is always running to capture history.
+    # Auto-crunch config purely handles auto-overwriting.
+    if enabled:
+        show_toast("🔄 Auto-Crunch: ACTIVE")
+    else:
+        show_toast("🔄 Auto-Crunch: INACTIVE")
 
 
 # -----------------------------------------------------------------------
@@ -431,7 +447,7 @@ def _on_select_entry(index: int) -> None:
         set_clipboard(entry.original)
         stack.set_cursor(index)
         beep_success()
-        show_toast(f"📋 Kopiert: {entry.original[:40]}")
+        show_toast(f"📋 Copied: {entry.original[:40]}")
         if tray:
             tray.update_menu()
 
@@ -452,7 +468,7 @@ def _on_select_compact(index: int) -> None:
 def _on_clear() -> None:
     """Clear the entire stack."""
     stack.clear()
-    show_toast("🗑️ Stack geleert")
+    show_toast("🗑️ Stack cleared")
     if tray:
         tray.update_menu()
 
@@ -470,10 +486,11 @@ def _on_settings() -> None:
             on_navigate_down=_on_navigate_down,
             on_toggle_compact=_on_toggle_compact,
             on_ai_compact=_on_ai_compact_from_clipboard,
+            on_heatmap=_on_show_heatmap,
             hotkey_bindings=hotkey_bindings,
         )
         hotkey_mgr.start()
-        show_toast("✓ Einstellungen gespeichert\nHotkeys neu geladen!")
+        show_toast("✓ Settings saved\nHotkeys reloaded!")
         if tray:
             tray._hotkeys = hotkey_bindings
             tray.update_menu()
@@ -506,6 +523,7 @@ def main() -> None:
         on_navigate_down=_on_navigate_down,
         on_toggle_compact=_on_toggle_compact,
         on_ai_compact=_on_ai_compact_from_clipboard,
+        on_heatmap=_on_show_heatmap,
         hotkey_bindings=hotkey_bindings,
     )
     hotkey_mgr.start()
@@ -514,9 +532,9 @@ def main() -> None:
         check_interval=0.5,
         on_clipboard_changed=_handle_clipboard_change,
     )
-    cfg = load_config()
-    if cfg.get("auto_crunch", False):
-        clip_monitor.start()
+    # Always run the clipboard monitor even if auto-crunch isn't enabled
+    # to populate the local stack history for manual hotkey access.
+    clip_monitor.start()
 
     tray = TrayApp(
         stack=stack,

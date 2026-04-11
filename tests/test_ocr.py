@@ -1,4 +1,4 @@
-"""Tests for ocrclipstack.ocr — Windows OCR engine.
+﻿"""Tests for contextcruncher.ocr — Windows OCR engine.
 
 These tests require the winsdk package and Windows 10/11.
 They are skipped automatically on unsupported platforms.
@@ -11,7 +11,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from PIL import Image, ImageDraw, ImageFont
-from ocrclipstack.ocr import is_ocr_available, recognise
+from contextcruncher.ocr import is_ocr_available, recognise
 
 
 @unittest.skipUnless(

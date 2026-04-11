@@ -3,7 +3,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from ocrclipstack.stack import TextStack
+from contextcruncher.stack import TextStack
 
 
 class TestTextStackBasic:
@@ -164,7 +164,7 @@ class TestTextStackLabel:
         s = TextStack()
         s.push("4532 1234", compact="45321234")
         label = s.label()
-        assert "original" in label
+        assert "Original" in label
         s.toggle_compact()
         label = s.label()
         assert "compact" in label

@@ -121,6 +121,11 @@ class TextStack:
         """
         if not variants or not variants[0].text:
             return
+            
+        # Avoid duplicate consecutive pushes of the exactly identical original text
+        if self._items and self._items[0].original == variants[0].text:
+            return
+            
         self._items.appendleft(_Entry(variants=variants))
         self._cursor = 0
 

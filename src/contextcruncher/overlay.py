@@ -1,4 +1,4 @@
-"""
+﻿"""
 overlay.py — Transparent full-screen selection rectangle.
 
 FIX (Bug #1): Uses tk.Toplevel owned by the global TkManager instead of
@@ -22,7 +22,7 @@ from typing import Callable
 import tkinter as tk
 from PIL import ImageGrab
 
-from ocrclipstack.feedback import get_tk_manager
+from contextcruncher.feedback import get_tk_manager
 
 log = logging.getLogger(__name__)
 

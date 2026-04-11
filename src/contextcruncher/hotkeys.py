@@ -15,7 +15,7 @@ HotkeyAction = Callable[[], None]
 
 
 class HotkeyManager:
-    """Manages global hotkeys for OCRClipStack."""
+    """Manages global hotkeys for contextcruncher."""
 
     def __init__(
         self,
@@ -24,6 +24,7 @@ class HotkeyManager:
         on_navigate_down: HotkeyAction,
         on_toggle_compact: HotkeyAction | None = None,
         on_ai_compact: HotkeyAction | None = None,
+        on_heatmap: HotkeyAction | None = None,
         hotkey_bindings: dict[str, str] | None = None,
     ) -> None:
         self._on_scan = on_scan
@@ -31,6 +32,7 @@ class HotkeyManager:
         self._on_navigate_down = on_navigate_down
         self._on_toggle_compact = on_toggle_compact
         self._on_ai_compact = on_ai_compact
+        self._on_heatmap = on_heatmap
         self._bindings = hotkey_bindings or {}
         self._listener: keyboard.GlobalHotKeys | None = None
 
@@ -45,6 +47,7 @@ class HotkeyManager:
             "navigate_up": self._on_navigate_up,
             "navigate_down": self._on_navigate_down,
             "toggle_compact": self._on_toggle_compact,
+            "hotkey_heatmap": self._on_heatmap,
         }
 
         for action, combo in self._bindings.items():

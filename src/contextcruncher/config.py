@@ -1,7 +1,7 @@
 """
 config.py — Persistent application settings.
 
-Stores settings in ``%APPDATA%/OCRClipStack/config.json``.  On first
+Stores settings in ``%APPDATA%/ContextCruncher/config.json``.  On first
 launch the file is created with sensible defaults.
 
 pynput key names reference:
@@ -26,7 +26,7 @@ from typing import Any
 # -----------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------
-_APP_DIR = os.path.join(os.environ.get("APPDATA", "."), "OCRClipStack")
+_APP_DIR = os.path.join(os.environ.get("APPDATA", "."), "ContextCruncher")
 CONFIG_PATH = os.path.join(_APP_DIR, "config.json")
 
 # -----------------------------------------------------------------------
@@ -38,6 +38,7 @@ DEFAULT_HOTKEYS: dict[str, str] = {
     "navigate_up": "<ctrl>+<shift>+<up>",
     "navigate_down": "<ctrl>+<shift>+<down>",
     "toggle_compact": "<ctrl>+<shift>+<right>",
+    "hotkey_heatmap": "<alt>+h",
 }
 
 _DEFAULT_CONFIG: dict[str, Any] = {
@@ -124,6 +125,7 @@ HOTKEY_ACTION_LABELS: dict[str, str] = {
     "navigate_up": "Newer ↑",
     "navigate_down": "Older ↓",
     "toggle_compact": "Variants ↔",
+    "hotkey_heatmap": "Token Heatmap",
 }
 
 
@@ -142,7 +144,7 @@ def _get_exe_path() -> str:
 
 
 def set_autostart(enabled: bool) -> None:
-    """Enable or disable Windows autostart for OCRClipStack."""
+    """Enable or disable Windows autostart for contextcruncher."""
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE)
         if enabled:

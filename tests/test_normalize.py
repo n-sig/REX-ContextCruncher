@@ -1,9 +1,9 @@
-"""Tests for the normalize module — smart number formatting detection."""
+﻿"""Tests for the normalize module — smart number formatting detection."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from ocrclipstack.normalize import compact_variant
+from contextcruncher.normalize import compact_variant
 
 
 class TestCompactVariant:
@@ -49,7 +49,7 @@ class TestCompactVariant:
         assert compact_variant("Apartment 4B on Floor 12") is None
 
     def test_single_word(self):
-        assert compact_variant("OCRClipStack") is None
+        assert compact_variant("contextcruncher") is None
 
     def test_empty_string(self):
         assert compact_variant("") is None

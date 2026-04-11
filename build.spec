@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec file for OCRClipStack — single-file Windows executable."""
+"""PyInstaller spec file for contextcruncher — single-file Windows executable."""
 
 import os
 
 block_cipher = None
 
 a = Analysis(
-    ["src/ocrclipstack/main.py"],
+    ["src/contextcruncher/main.py"],
     pathex=[],
     binaries=[],
     datas=[
@@ -27,6 +27,14 @@ a = Analysis(
         "pynput.mouse._win32",
         # pyperclip backend
         "pyperclip",
+        # mcp_server and new features
+        "contextcruncher.mcp_server",
+        "contextcruncher.skeletonizer",
+        "contextcruncher.ui.heatmap",
+        # tiktoken backend
+        "tiktoken",
+        "tiktoken_ext.openai_public",
+        "tiktoken_ext",
     ],
     hookspath=[],
     hooksconfig={},
