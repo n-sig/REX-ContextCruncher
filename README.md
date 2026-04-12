@@ -1,4 +1,4 @@
-# 🦖 ContextCruncher
+# REX-ContextCruncher
 
 <div align="center">
   <img src="assets/CC.png" alt="ContextCruncher Logo" width="75%" />
