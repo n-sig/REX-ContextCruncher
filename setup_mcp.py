@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 setup_mcp.py — Auto-register ContextCruncher MCP server in AI IDEs.
 
@@ -27,11 +27,17 @@ import os
 import sys
 from pathlib import Path
 
+# Path detection
+CURRENT_DIR = Path(__file__).parent.absolute()
+SRC_DIR = CURRENT_DIR / "src"
+
 # The MCP server entry to inject
 MCP_ENTRY = {
-    "command": "python",
+    "command": sys.executable,
     "args": ["-m", "contextcruncher.mcp_server"],
-    "env": {}
+    "env": {
+        "PYTHONPATH": str(SRC_DIR)
+    }
 }
 
 
@@ -98,12 +104,7 @@ def register_in_config(config_path: Path, tool_name: str) -> bool:
     if "mcpServers" not in config:
         config["mcpServers"] = {}
 
-    # Check if already registered
-    if "contextcruncher" in config["mcpServers"]:
-        print(f"  ✅ {tool_name}: Already registered!")
-        return True
-
-    # Add our entry
+    # Add/Update our entry
     config["mcpServers"]["contextcruncher"] = MCP_ENTRY
 
     # Write back
@@ -112,17 +113,17 @@ def register_in_config(config_path: Path, tool_name: str) -> bool:
             json.dumps(config, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8"
         )
-        print(f"  ✅ {tool_name}: Registered at {config_path}")
+        print(f"  [OK] {tool_name}: Registered at {config_path}")
         return True
     except Exception as e:
-        print(f"  ❌ {tool_name}: Failed to write config: {e}")
+        print(f"  [ERR] {tool_name}: Failed to write config: {e}")
         return False
 
 
 def interactive_setup():
     """Interactive mode — let user pick tools."""
     print()
-    print("  🦖 ContextCruncher MCP Setup")
+    print("  [#] ContextCruncher MCP Setup")
     print("  " + "=" * 40)
     print()
 
@@ -132,7 +133,7 @@ def interactive_setup():
         exists = path.exists() if path else False
         status = "detected" if exists else "not found"
         available.append((key, name, path, exists))
-        marker = "✅" if exists else "⬚ "
+        marker = "[X]" if exists else "[ ]"
         print(f"  {marker} {name:<20} ({status})")
 
     print()
@@ -183,7 +184,7 @@ def main():
         return
 
     print()
-    print("  🦖 ContextCruncher MCP Setup")
+    print("  [#] ContextCruncher MCP Setup")
     print("  " + "=" * 40)
     print()
 
@@ -206,7 +207,7 @@ def main():
         if path:
             register_in_config(path, name)
         else:
-            print(f"  ❌ {name}: Config path not available on this OS")
+            print(f"  [ERR] {name}: Config path not available on this OS")
 
     print()
     print("  Done! Restart your AI tools to pick up the changes.")

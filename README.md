@@ -121,7 +121,8 @@ Or register manually in your AI client config:
 | `crunch_text` | Compress text with token stats |
 | `crunch_file` | Read & compress any file |
 | `crunch_directory` | Recursively compress entire directory |
-| `skeletonize_json` | Compress large JSON/XML data by truncating long string values |
+| `crunch_code_skeleton` | Skeleton of code (signatures only) or structured data (JSON/XML/YAML schema) |
+| `crunch_file_skeleton` | Read a local file from disk and return its skeleton |
 | `count_text_tokens` | Count exact LLM tokens (tiktoken) |
 | `get_brevity_prompt` | Output-brevity system prompt (~70% shorter AI responses) |
 | `search_stack` | Search clipboard/OCR history |

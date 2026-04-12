@@ -16,16 +16,22 @@ AI clients (e.g. Claude Desktop) can register it in their config:
       }
     }
 
-Exposed tools:
-  • ocr_scan_region   — Prompt user to select a screen region, return OCR text.
-  • screenshot_full   — OCR the entire visible screen without user interaction.
-  • read_clipboard    — Read the current system clipboard content.
-  • crunch_text       — Compress text for token-efficient AI consumption.
-  • search_stack      — Search through clipboard/OCR history.
-  • ocr_get_stack     — Return the entire history stack as a list.
-  • ocr_get_current   — Return the currently selected stack entry.
-  • ocr_push_text     — Push arbitrary text into the stack.
-  • ocr_clear_stack   — Clear the history stack.
+Exposed tools (14):
+  • ocr_scan_region      — Prompt user to select a screen region, return OCR text.
+  • screenshot_full      — OCR the entire visible screen without user interaction.
+  • read_clipboard       — Read the current system clipboard content.
+  • crunch_text          — Compress text for token-efficient AI consumption.
+  • crunch_file          — Read a file from disk and compress it.
+  • crunch_directory     — Recursively read and compress an entire directory.
+  • crunch_code_skeleton — Strip code/JSON/XML bodies; keep signatures & schema.
+  • crunch_file_skeleton — Read a local file and return its skeleton.
+  • count_text_tokens    — Count exact LLM tokens (tiktoken cl100k_base).
+  • get_brevity_prompt   — System prompt that reduces AI output tokens ~70%.
+  • search_stack         — Search through clipboard/OCR history.
+  • ocr_get_stack        — Return the entire history stack as a list.
+  • ocr_get_current      — Return the currently selected stack entry.
+  • ocr_push_text        — Push arbitrary text into the stack.
+  • ocr_clear_stack      — Clear the history stack.
 """
 
 from __future__ import annotations
@@ -511,15 +517,26 @@ def get_brevity_prompt() -> str:
 
 @mcp.tool()
 def crunch_code_skeleton(text: str, filename: str = "code.py") -> dict:
-    """Creates a semantic skeleton of a code file by stripping function bodies.
+    """Creates a semantic skeleton of a code or structured-data file.
 
-    Returns only class definitions, interfaces, and function signatures.
-    Crucial for token-efficient repository mapping (e.g. providing an AI 
-    with a map of a 5,000-line codebase for only 300 tokens).
+    For **code** (Python, JS/TS): strips all function bodies, returning only
+    class definitions, interfaces, and function signatures.
+
+    For **structured data** (JSON, XML, YAML): preserves the full key/tag
+    hierarchy but truncates long string values and large arrays — keeping the
+    schema shape while removing payload noise.
+
+    Crucial for token-efficient repository or API-response mapping (e.g.
+    providing an AI with a map of a 5,000-line codebase for ~300 tokens, or
+    the schema of a 200 KB API response for ~50 tokens).
+
+    Supported extensions: .py .pyw .js .ts .jsx .tsx .json .xml .yaml .yml
+    All other file types are returned unchanged (safe no-op).
 
     Args:
-        text: The raw code string.
-        filename: The filename (e.g. main.py) to determine the language parser.
+        text: The raw text content.
+        filename: Filename including extension (e.g. ``data.json``, ``main.py``)
+                  used to select the correct parser.
 
     Returns:
         Dict with skeleton_text and token savings stats.
