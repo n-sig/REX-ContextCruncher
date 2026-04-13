@@ -1,15 +1,32 @@
 """
-token_counter.py — Token counting for AI-optimized text compression.
+token_counter.py — Token counting and cost estimation for LLM text.
 
 Uses tiktoken (OpenAI's tokenizer) to measure actual LLM token counts
 for compression benchmarks and statistics. Falls back to a word-based
 estimate if tiktoken is not available.
+
+FR-02: cost_estimate() maps a token count to per-model costs in US cents.
+Prices reflect publicly listed input rates (per 1 M tokens) as of 2025.
 """
 
 from __future__ import annotations
 
 _enc = None
 _FALLBACK = False
+
+# ---------------------------------------------------------------------------
+# FR-02 — Model price table
+# Key  : display name shown in the UI
+# Value: USD cost per 1 000 000 input tokens  (= cost_per_token × 1 000 000)
+# ---------------------------------------------------------------------------
+COST_TABLE: dict[str, float] = {
+    "GPT-4o":            2.50,
+    "GPT-4o mini":       0.15,
+    "o3 mini":           1.10,
+    "Claude 3.5 Sonnet": 3.00,
+    "Claude 3.5 Haiku":  0.80,
+    "Claude 3 Opus":    15.00,
+}
 
 
 def _get_encoder():

@@ -35,3 +35,6 @@ Desktop.ini
 # Distribution
 *.tar.gz
 *.whl
+
+# Custom
+Berichte/

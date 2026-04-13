@@ -50,6 +50,103 @@ def is_ocr_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Human-readable names for common BCP-47 tags shown in the Settings UI.
+# The list is intentionally broad — any tag not found here falls back to
+# the raw tag string (e.g. "zh-Hant-TW").
+# ---------------------------------------------------------------------------
+_KNOWN_LANGUAGE_NAMES: dict[str, str] = {
+    # Germanic
+    "de": "Deutsch",          "de-de": "Deutsch (Deutschland)",
+    "de-at": "Deutsch (Österreich)", "de-ch": "Deutsch (Schweiz)",
+    "en": "English",          "en-us": "English (US)",
+    "en-gb": "English (UK)",  "en-au": "English (Australia)",
+    "nl": "Nederlands",       "nl-nl": "Nederlands (Nederland)",
+    "nl-be": "Nederlands (België)",
+    "sv": "Svenska",          "da": "Dansk",
+    "nb": "Norsk Bokmål",     "nn": "Norsk Nynorsk",
+    "fi": "Suomi",            "is": "Íslenska",
+    # Romance
+    "fr": "Français",         "fr-fr": "Français (France)",
+    "fr-be": "Français (Belgique)", "fr-ch": "Français (Suisse)",
+    "es": "Español",          "es-es": "Español (España)",
+    "es-mx": "Español (México)",
+    "it": "Italiano",         "it-it": "Italiano (Italia)",
+    "pt": "Português",        "pt-br": "Português (Brasil)",
+    "pt-pt": "Português (Portugal)",
+    "ro": "Română",           "ca": "Català",
+    # Slavic
+    "pl": "Polski",           "cs": "Čeština",
+    "sk": "Slovenčina",       "sl": "Slovenščina",
+    "hr": "Hrvatski",         "bs": "Bosanski",
+    "sr": "Српски",           "bg": "Български",
+    "ru": "Русский",          "uk": "Українська",
+    "be": "Беларуская",
+    # Other European
+    "el": "Ελληνικά",         "hu": "Magyar",
+    "lt": "Lietuvių",         "lv": "Latviešu",
+    "et": "Eesti",
+    # Asian
+    "zh-hans": "中文 (简体)",  "zh-hant": "中文 (繁體)",
+    "zh-cn":   "中文 (中国)", "zh-tw": "中文 (台灣)",
+    "ja": "日本語",           "ko": "한국어",
+    "th": "ไทย",              "vi": "Tiếng Việt",
+    "id": "Bahasa Indonesia",  "ms": "Bahasa Melayu",
+    # Middle-East / Africa
+    "ar": "العربية",           "he": "עברית",
+    "fa": "فارسی",             "tr": "Türkçe",
+}
+
+
+def get_available_languages() -> list[tuple[str, str]]:
+    """Return installed OCR language packs as ``[(display_name, bcp47_tag), …]``.
+
+    Queries ``OcrEngine.available_recognizer_languages`` so only language
+    packs actually installed on the current Windows system are returned.
+
+    The list is sorted alphabetically by display name and is safe to use
+    directly as options for a Tkinter OptionMenu.
+
+    Falls back to a minimal static list when WinRT is unavailable (e.g. on
+    Linux CI or unsupported Windows versions) so the Settings dialog can
+    still be shown.
+    """
+    if not _winrt_available or _OcrEngine is None:
+        # Minimal fallback — keeps the Settings dialog functional
+        return [
+            ("Deutsch", "de"),
+            ("English", "en"),
+            ("Español", "es"),
+            ("Français", "fr"),
+            ("Italiano", "it"),
+            ("Polski", "pl"),
+            ("Português", "pt"),
+        ]
+
+    result: list[tuple[str, str]] = []
+    for lang in _OcrEngine.available_recognizer_languages:
+        tag: str = lang.language_tag          # BCP-47, e.g. "de-DE"
+        tag_lower = tag.lower()
+
+        # Look up a friendly display name, trying full tag first then primary subtag.
+        display = (
+            _KNOWN_LANGUAGE_NAMES.get(tag_lower)
+            or _KNOWN_LANGUAGE_NAMES.get(tag_lower.split("-")[0])
+            or tag          # raw tag as last resort (e.g. "yue-Hant")
+        )
+        result.append((display, tag))
+
+    # Sort alphabetically by display name; deduplicate by tag just in case.
+    seen: set[str] = set()
+    unique: list[tuple[str, str]] = []
+    for item in sorted(result, key=lambda x: x[0].casefold()):
+        if item[1] not in seen:
+            seen.add(item[1])
+            unique.append(item)
+
+    return unique
+
+
+# ---------------------------------------------------------------------------
 # Language selection
 # ---------------------------------------------------------------------------
 
@@ -124,27 +221,49 @@ def _pil_to_software_bitmap(image: Image):
 
 # Minimum pixel height for reliable OCR results. Smaller images are
 # upscaled proportionally so the Windows engine can find glyphs.
-_MIN_OCR_HEIGHT = 64
+#
+# BUG-06 fix: raised from 64 → 96.
+# Windows OCR targets ~12 pt text at 96 DPI (≈ 16 px).  At 64 px the
+# engine barely has one baseline worth of context; at 96 px recognition
+# rates improve noticeably for single-line captures.
+_MIN_OCR_HEIGHT = 96
+
+# Padding added around every captured image before OCR.
+#
+# BUG-06 fix: raised from 10 → 24 px.
+# The OCR engine needs a blank margin around glyphs to avoid reading
+# screen content that "bleeds in" at the capture boundary.  10 px was
+# too tight for small selections (tooltips, status-bar labels); 24 px
+# gives reliable isolation while staying within the 20–30 px sweet-spot
+# described in the Windows OCR documentation.
+_OCR_PADDING = 24
 
 
 def _upscale_for_ocr(image: Image) -> Image:
-    """Return *image* padded and scaled up if its height is below *_MIN_OCR_HEIGHT*."""
-    # Synthetic padding: Add a solid border using the color from the top-left pixel.
-    # This gives the OCR engine the required empty space around characters
-    # without accidentally reading neighboring text from the physical screen.
+    """Return *image* padded and upscaled to meet the OCR engine's minimum size.
+
+    Steps
+    -----
+    1. Add *_OCR_PADDING* px of solid border (colour sampled from the
+       top-left pixel) to isolate the capture from surrounding screen content.
+    2. If the padded height is still below *_MIN_OCR_HEIGHT*, upscale
+       proportionally using LANCZOS so the engine always receives at least
+       *_MIN_OCR_HEIGHT* px of image data.
+    """
+    # Synthetic padding — sample background colour from the top-left pixel.
+    # ImageOps.expand handles all PIL image modes (RGB, L, P, RGBA, …).
     bg_color = image.getpixel((0, 0))
-    # Some images might be 'P' or 'L' mode, getpixel returns int instead of tuple.
-    # ImageOps.expand works fine either way.
-    image = ImageOps.expand(image, border=10, fill=bg_color)
+    image = ImageOps.expand(image, border=_OCR_PADDING, fill=bg_color)
 
     w, h = image.size
     if h >= _MIN_OCR_HEIGHT:
         return image
+
     scale = _MIN_OCR_HEIGHT / h
-    # Use LANCZOS for high-quality upscale.
     new_w = max(int(w * scale), 1)
     new_h = max(int(h * scale), _MIN_OCR_HEIGHT)
-    return image.resize((new_w, new_h), resample=3)  # 3 = LANCZOS
+    # LANCZOS (resample=3) gives the best quality for upscaling text.
+    return image.resize((new_w, new_h), resample=3)
 
 
 async def _recognise_async(image: Image, language: str = "auto") -> str:

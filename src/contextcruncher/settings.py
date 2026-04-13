@@ -36,8 +36,10 @@ from contextcruncher.config import (
     DEFAULT_HOTKEYS,
     set_autostart,
     get_autostart,
+    find_hotkey_collision,
 )
 from contextcruncher.feedback import get_tk_manager
+from contextcruncher.ocr import get_available_languages
 
 log = logging.getLogger(__name__)
 
@@ -390,6 +392,34 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         level_menu["menu"].config(font=("Segoe UI", 10), bg=_BG_FIELD, fg=_FG)
         level_menu.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
 
+        # OCR Language
+        ocr_lang_row = tk.Frame(general_frame, bg=_BG)
+        ocr_lang_row.pack(fill=tk.X, pady=(10, 3))
+        tk.Label(
+            ocr_lang_row, text="OCR Language", font=("Segoe UI", 11),
+            fg=_FG, bg=_BG, width=18, anchor="w",
+        ).pack(side=tk.LEFT)
+
+        # Build options: "Auto" first, then installed language packs
+        _lang_options: list[tuple[str, str]] = (
+            [("Auto (EU Priority)", "auto")] + get_available_languages()
+        )
+        _lang_display_to_tag: dict[str, str] = {name: tag for name, tag in _lang_options}
+        _lang_tag_to_display: dict[str, str] = {tag: name for name, tag in _lang_options}
+
+        ocr_lang_var = tk.StringVar()
+        _current_lang = cfg.get("ocr_language", "auto")
+        ocr_lang_var.set(_lang_tag_to_display.get(_current_lang, "Auto (EU Priority)"))
+
+        ocr_lang_menu = tk.OptionMenu(ocr_lang_row, ocr_lang_var, *[n for n, _ in _lang_options])
+        ocr_lang_menu.config(
+            font=("Segoe UI", 10), bg=_BG_FIELD, fg=_FG,
+            activebackground=_BTN_HOVER, activeforeground=_FG,
+            highlightthickness=0, bd=0,
+        )
+        ocr_lang_menu["menu"].config(font=("Segoe UI", 10), bg=_BG_FIELD, fg=_FG)
+        ocr_lang_menu.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
+
         # XML Wrap
         xml_wrap_var = tk.BooleanVar(value=cfg.get("xml_wrap", False))
         xml_wrap_row = tk.Frame(general_frame, bg=_BG)
@@ -442,6 +472,13 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         variant_mode_menu["menu"].config(font=("Segoe UI", 10), bg=_BG_FIELD, fg=_FG)
         variant_mode_menu.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
 
+        # ── Error label (hidden until a validation error occurs) ─────────
+        error_label = tk.Label(
+            win, text="", font=("Segoe UI", 10),
+            fg="#ff6b6b", bg=_BG, wraplength=360,
+        )
+        error_label.pack(padx=25, pady=(4, 0))
+
         # ── Buttons ───────────────────────────────────────────────────────
         btn_frame = tk.Frame(win, bg=_BG)
         btn_frame.pack(pady=(5, 20))
@@ -451,12 +488,30 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
                 f.cleanup()
 
         def _save() -> None:
-            _cleanup_fields()
             new_hotkeys = {action: field.combo for action, field in fields.items()}
+
+            # BUG-05 — reject duplicate bindings before touching the config
+            collision = find_hotkey_collision(new_hotkeys)
+            if collision:
+                combo, action_a, action_b = collision
+                label_a = HOTKEY_ACTION_LABELS.get(action_a, action_a)
+                label_b = HOTKEY_ACTION_LABELS.get(action_b, action_b)
+                error_label.config(
+                    text=(
+                        f"⚠ Conflict: '{hotkey_display_name(combo)}' is assigned to "
+                        f"both '{label_a}' and '{label_b}'. Please choose a different key."
+                    )
+                )
+                return  # abort — do NOT save or close the dialog
+
+            # No collision → clear any previous error and proceed
+            error_label.config(text="")
+            _cleanup_fields()
             cfg["hotkeys"] = new_hotkeys
             cfg["max_stack_size"] = stack_var.get()
             cfg["autostart"] = autostart_var.get()
             cfg["ai_compact_level"] = level_options.get(level_var.get(), 1)
+            cfg["ocr_language"] = _lang_display_to_tag.get(ocr_lang_var.get(), "auto")
             cfg["xml_wrap"] = xml_wrap_var.get()
             cfg["xml_tag"] = xml_tag_var.get()
             cfg["variant_mode"] = variant_mode_options.get(variant_mode_var.get(), "cycle")

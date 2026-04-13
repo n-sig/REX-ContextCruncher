@@ -34,6 +34,7 @@ CONFIG_PATH = os.path.join(_APP_DIR, "config.json")
 # -----------------------------------------------------------------------
 DEFAULT_HOTKEYS: dict[str, str] = {
     "scan": "<ctrl>+<alt>+s",
+    "screenshot_full": "<ctrl>+<alt>+f",   # FR-01: full-screen OCR
     "ai_compact": "<ctrl>+<alt>+c",
     "navigate_up": "<ctrl>+<shift>+<up>",
     "navigate_down": "<ctrl>+<shift>+<down>",
@@ -101,6 +102,30 @@ def get_hotkeys() -> dict[str, str]:
     return cfg.get("hotkeys", DEFAULT_HOTKEYS.copy())
 
 
+def find_hotkey_collision(
+    hotkeys: dict[str, str],
+) -> tuple[str, str, str] | None:
+    """Check *hotkeys* for duplicate bindings.
+
+    Returns ``(combo, action1, action2)`` for the *first* collision found,
+    where *combo* is the duplicated key string and *action1* / *action2* are
+    the conflicting action names (keys in *hotkeys*).
+
+    Returns ``None`` when all non-empty bindings are unique.
+
+    Empty combos (unassigned hotkeys) are silently ignored so a user who
+    has cleared several bindings does not see spurious conflicts.
+    """
+    seen: dict[str, str] = {}       # combo → first action that claimed it
+    for action, combo in hotkeys.items():
+        if not combo:
+            continue
+        if combo in seen:
+            return (combo, seen[combo], action)
+        seen[combo] = action
+    return None
+
+
 # -----------------------------------------------------------------------
 # Display helpers
 # -----------------------------------------------------------------------
@@ -121,6 +146,7 @@ def hotkey_display_name(hotkey: str) -> str:
 
 HOTKEY_ACTION_LABELS: dict[str, str] = {
     "scan": "Scan Region",
+    "screenshot_full": "Full Screen OCR",  # FR-01
     "ai_compact": "AI Cruncher",
     "navigate_up": "Newer ↑",
     "navigate_down": "Older ↓",
@@ -136,11 +162,22 @@ _AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _AUTOSTART_NAME = "ContextCruncher"
 
 
-def _get_exe_path() -> str:
-    """Return the path to the running executable or script."""
+def _get_autostart_command() -> str:
+    """Return the shell command string to store in the Windows Run registry key.
+
+    - Frozen (.exe)  → ``"C:\\path\\to\\contextcruncher.exe"``
+    - Dev mode       → ``"C:\\Python311\\python.exe" "C:\\path\\to\\main.py"``
+
+    The dev-mode variant invokes the Python interpreter explicitly so Windows
+    can start the app regardless of whether Python is on the system PATH or
+    ``.py`` files have a file-type association.
+    """
     if getattr(sys, "frozen", False):
-        return sys.executable
-    return os.path.abspath(sys.argv[0])
+        # PyInstaller bundle — sys.executable is the .exe itself.
+        return f'"{sys.executable}"'
+    # Running from source: build "python.exe main.py" command.
+    script = os.path.abspath(sys.argv[0])
+    return f'"{sys.executable}" "{script}"'
 
 
 def set_autostart(enabled: bool) -> None:
@@ -148,7 +185,7 @@ def set_autostart(enabled: bool) -> None:
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE)
         if enabled:
-            winreg.SetValueEx(key, _AUTOSTART_NAME, 0, winreg.REG_SZ, f'"{_get_exe_path()}"')
+            winreg.SetValueEx(key, _AUTOSTART_NAME, 0, winreg.REG_SZ, _get_autostart_command())
         else:
             try:
                 winreg.DeleteValue(key, _AUTOSTART_NAME)

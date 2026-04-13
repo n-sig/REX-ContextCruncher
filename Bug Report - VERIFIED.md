@@ -1,181 +1,151 @@
 # 🐞 Verified QA Report — ContextCruncher v0.1.0-alpha / v0.2.0-beta
 
 **Erstellt:** 2026-04-12  
+**Zuletzt aktualisiert:** 2026-04-13  
 **Methode:** Statische Code-Analyse aller Module in `src/contextcruncher/`  
 **Status-Legende:** ✅ Bestätigt · ⚠️ Teilweise · 🟢 Behoben · ❌ Nicht reproduzierbar
 
 ---
 
-## 🚨 P1 — Kritisch
+## 🟢 Alle verifizierten Bugs behoben — Übersicht
 
-### [BUG-01] Security Scanner: High-Entropy Secrets werden nicht erkannt
-**Status:** ✅ Bestätigt  
-**Datei:** `security_scanner.py`
+| ID | Priorität | Problem | Datei(en) | Tests |
+|---|---|---|---|---|
+| ~~BUG-01~~ | P1 🚨 | Security Scanner: High-Entropy Secrets nicht erkannt | `security_scanner.py` | `test_security_scanner.py` |
+| ~~BUG-02~~ | P1 🚨 | Skeletonizer kein JSON/XML-Handler, README/MCP-Name falsch | `skeletonizer.py`, `mcp_server.py`, `README.md` | `test_skeletonizer.py` |
+| ~~BUG-03~~ | P1 🚨 | Stack-Zähler utopisch hoch (kurze Clipboard-Events) | `clipboard_monitor.py` | `test_clipboard_monitor.py` |
+| ~~BUG-04~~ | P2 🟠 | OCR-Spracheinstellung fehlt im Settings-UI | `settings.py`, `ocr.py` | `test_ocr_languages.py` |
+| ~~BUG-05~~ | P2 🟠 | Hotkey-Kollisionsprüfung fehlt | `settings.py`, `config.py` | `test_hotkey_collision.py` |
+| ~~BUG-06~~ | P2 🟠 | OCR schlägt bei sehr kleinen Auswahlen fehl | `ocr.py` | `test_ocr_upscale.py` |
+| ~~BUG-07~~ | P3 🟡 | Auto-Crunch: Kein Debouncing | `clipboard_monitor.py` | `test_clipboard_debounce.py` |
+| ~~BUG-08~~ | P3 🟡 | Autostart funktioniert nur für kompilierte .exe | `config.py` | `test_autostart_command.py` |
 
-Der Scanner kennt exakt 6 hardcodierte Regex-Patterns. Alles andere läuft ungeprüft durch.
-
-**Konkret fehlende Patterns (Code-Beweis):**
-
-| Secret-Typ | Beispiel | Pattern vorhanden? |
-|---|---|---|
-| AWS Access Key ID | `AKIA...` | ✅ Ja |
-| **AWS Secret Access Key** | `wJalrXUtn...` | ❌ Nein |
-| **Stripe Live Key** | `sk_live_...` | ❌ Nein |
-| **Stripe Test Key** | `sk_test_...` | ❌ Nein |
-| **PayPal / Braintree** | `access_token$...` | ❌ Nein |
-| **OpenAI API Key** | `sk-proj-...` | ❌ Nein |
-| **GCP Service Account JSON** | `"private_key": "-----BEGIN..."` in String | ❌ Kein rekursives Scanning |
-| GitHub Token (ghp_) | `ghp_...` | ✅ Ja |
-| JWT | `eyJ...` | ✅ Ja |
-| UUID | Standard-Format | ✅ Ja |
-| Private Key Block | `-----BEGIN...` | ✅ Ja |
-| IPv4-Adresse | `192.168.x.x` | ✅ Ja (aber: zu aggressiv — trifft auch Versionsnummern wie `1.0.0.1`) |
-
-**Kein Entropie-Check:** Secrets ohne bekannte Präfixe (z. B. zufällige 40-char-Strings) werden nie erkannt.  
-**Kein rekursives JSON-Parsing:** `{"key": "{\"private_key\": \"...\"}" }` — eingebettetes JSON wird nicht aufgelöst.
-
-**Auswirkung:** Falsches Sicherheitsgefühl. Stripe-, PayPal- und GCP-Credentials gehen unzensiert an LLMs.
-
-**Fix:**
-```python
-# Fehlende Patterns ergänzen:
-"[STRIPE_KEY_REDACTED]":  re.compile(r'\bsk_(?:live|test)_[a-zA-Z0-9]{24,}\b'),
-"[OPENAI_KEY_REDACTED]":  re.compile(r'\bsk-(?:proj-)?[a-zA-Z0-9\-_]{32,}\b'),
-"[GENERIC_SECRET_REDACTED]": Shannon-Entropie > 4.5 bei Strings > 20 Zeichen
-```
+**Test-Suite:** 155 passed · 3 skipped (WinRT/Windows-only) · 1 failed (pre-existing, unrelated)
 
 ---
 
-### [BUG-02] Skeletonizer ist kein JSON/XML-Skeletonizer — README/MCP-Name falsch
-**Status:** ✅ Bestätigt + Zusatzfund  
+## 🟢 Behoben in dieser Session (BUG-01 bis BUG-08)
+
+### ~~[BUG-01]~~ Security Scanner: High-Entropy Secrets werden nicht erkannt
+**Status:** 🟢 Behoben  
+**Datei:** `security_scanner.py`  
+**Commit-Scope:** Kompletter Rewrite mit Zwei-Pass-Architektur
+
+**Ursache:** Nur 6 hardcodierte Regex-Patterns. AWS Secret Keys, Stripe, OpenAI u. a. nicht abgedeckt. Kein Entropie-Fallback für unbekannte Secrets.
+
+**Fix:**
+- Pass 1: Erweiterte Patterns — `[AWS_SECRET_REDACTED]`, `[STRIPE_KEY_REDACTED]`, `[AI_API_KEY_REDACTED]` u. a.
+- Pass 2: Shannon-Entropy-Check (`≥ 4.5`) als Catch-all für unbekannte High-Entropy-Tokens
+- Guard gegen False-Positives: `_looks_like_secret()` verlangt Zeichentyp-Diversität (Groß/Zahl/Sonderzeichen)
+- Pangram-False-Positive-Fix: Reine Kleinbuchstaben-Strings werden nie als Secret eingestuft
+
+**Neue Tests:** `tests/test_security_scanner.py`
+
+---
+
+### ~~[BUG-02]~~ Skeletonizer ist kein JSON/XML-Skeletonizer — README/MCP-Name falsch
+**Status:** 🟢 Behoben  
 **Dateien:** `skeletonizer.py`, `mcp_server.py`, `README.md`
 
-`skeletonizer.py` ist ausschließlich ein **Code-Skeletonizer** (Python via AST, JS/TS via Regex). JSON/XML wird gar nicht verarbeitet.
-
-```python
-# skeletonizer.py — crunch_skeleton():
-def crunch_skeleton(text: str, filename: str = "code.py") -> str:
-    ext = filename.split('.')[-1].lower()
-    if ext in ('py', 'pyw'):
-        return crunch_python(text)       # ✅ funktioniert
-    elif ext in ('js', 'ts', 'jsx', 'tsx'):
-        return _crude_js_ts_skeleton(text)  # ⚠️ Regex, rudimentär
-    return text  # ← JSON, XML, YAML → unveränderter Originaltext zurück!
-```
-
-**Zusatzfund — MCP-Tool-Name stimmt nicht:**  
-- README und MCP-Dokumentation listen `skeletonize_json` als Tool  
-- Im `mcp_server.py` heißt das Tool **`crunch_code_skeleton`** — `skeletonize_json` existiert nicht  
-- Nutzer, die `skeletonize_json` aufrufen, erhalten einen MCP-Fehler
-
-**Auswirkung:** Feature wie beschrieben nicht vorhanden. JSON-Payloads werden nicht reduziert.
-
-**Fix:** Echten JSON-Skeletonizer implementieren:
-```python
-import json
-def skeletonize_json(text: str, max_str_len: int = 64, max_array_items: int = 1) -> str:
-    data = json.loads(text)
-    return json.dumps(_reduce(data, max_str_len, max_array_items), indent=2)
-```
-
----
-
-### [BUG-03] Stack-Zähler zeigt utopische Werte (z. B. `2/34`)
-**Status:** ✅ Bestätigt  
-**Datei:** `clipboard_monitor.py`, `main.py`
-
-Der `ClipboardMonitor` pusht **jeden** Clipboard-Event auf den Stack — auch von Hintergrund-Apps (Browser, IDEs, Teams, etc.), die still in die Zwischenablage schreiben, ohne dass der User etwas kopiert hat. Diese Einträge sind im Tray-Menü nicht sichtbar (weil sie leer oder Systemnachrichten sind), zählen aber trotzdem in `len(stack._items)` mit.
-
-**Ergebnis:** User kopiert 2 Dinge, Anzeige zeigt `2/34`.
-
-**Fix:** Whitelist für sinnvolle Stack-Einträge — z. B. nur pushen wenn `len(text.strip()) > 5`, oder einen "silent push"-Modus ohne Tray-Eintrag einführen.
-
----
-
-## 🟠 P2 — Hoch
-
-### [BUG-04] OCR-Spracheinstellung fehlt im Settings-UI
-**Status:** ✅ Bestätigt  
-**Dateien:** `settings.py`, `config.py`, `ocr.py`
-
-- `config.py` speichert `"ocr_language": "auto"` ✅  
-- `ocr.py` liest den Wert seit unserem Fix korrekt aus ✅  
-- `settings.py` hat **kein UI-Element** für diese Einstellung — der User kann sie nicht ändern ❌  
-
-**Fix:** Dropdown in `open_settings()` ergänzen (analog zum bestehenden AI-Compression-Dropdown), das verfügbare Windows-OCR-Sprachen auflistet und den Wert in `config.json` speichert.
-
----
-
-### [BUG-05] Hotkey-Kollisionsprüfung fehlt
-**Status:** ✅ Bestätigt  
-**Datei:** `settings.py`
-
-Beim Speichern in `_save()` wird nicht geprüft, ob zwei Aktionen denselben Hotkey haben. `pynput.GlobalHotKeys` registriert dann denselben Key für zwei Callbacks — das Verhalten ist undefiniert (meistens gewinnt der letzte Eintrag lautlos).
+**Ursache:** `crunch_skeleton()` gab JSON/XML/YAML unverändert zurück. README und MCP-Doku nannten nicht-existentes Tool `skeletonize_json`.
 
 **Fix:**
-```python
-def _save():
-    new_hotkeys = {action: field.combo for action, field in fields.items()}
-    # Kollisionsprüfung
-    used = {}
-    for action, combo in new_hotkeys.items():
-        if combo and combo in used:
-            show_error(f"Konflikt: '{combo}' ist für '{used[combo]}' und '{action}' belegt.")
-            return
-        if combo:
-            used[combo] = action
-```
+- Echter JSON-Skeletonizer via `json`-Stdlib: Strings > 64 Zeichen gekürzt, Arrays auf 3 Items begrenzt
+- XML-Skeletonizer via `xml.etree.ElementTree`: Struktur/Attribute erhalten, langer Text gekürzt
+- YAML-Skeletonizer (stdlib-Fallback wenn kein PyYAML installiert)
+- README: `skeletonize_json` → `crunch_code_skeleton` / `crunch_file_skeleton`
+- `mcp_server.py`: Docstring aktualisiert (9 → 15 Tools, JSON/XML/YAML erwähnt)
+
+**Neue Tests:** `tests/test_skeletonizer.py`
 
 ---
 
-### [BUG-06] OCR schlägt bei sehr kleinen Auswahlen fehl
-**Status:** ⚠️ Teilweise — Schutz vorhanden, aber unzureichend  
-**Datei:** `ocr.py`
-
-`_upscale_for_ocr()` fügt 10px Padding und skaliert auf min. 64px Höhe hoch. Das reicht für Einzelzeichen-Captures (z. B. ein einzelnes Icon-Label) jedoch oft nicht aus, da der Windows-OCR-Engine ein Mindestkontext um das Zeichen herum benötigt.
-
-**Fix:** Padding von 10px auf 20–30px erhöhen, und `_MIN_OCR_HEIGHT` von 64 auf 96px.
-
----
-
-## 🟡 P3 — Mittel
-
-### [BUG-07] Auto-Crunch: Kein Debouncing
-**Status:** ✅ Bestätigt  
+### ~~[BUG-03]~~ Stack-Zähler zeigt utopische Werte (z. B. `2/34`)
+**Status:** 🟢 Behoben  
 **Datei:** `clipboard_monitor.py`
 
-Bei schnellem Kopieren (z. B. Ctrl+C, Ctrl+C, Ctrl+C in schneller Folge) startet `_handle_clipboard_change` für jeden Event sofort. Die Kompression für Level 3/4 blockiert den Monitor-Thread für jede einzelne Änderung.
+**Ursache:** Jeder Clipboard-Event von Hintergrund-Apps (IDEs, Browser, Teams) wurde auf den Stack gepusht — inklusive 1–4-Zeichen-Writes.
 
-**Fix:** 300ms Debounce-Logik im `_run()`-Loop:
-```python
-# Nur auslösen wenn 300ms keine neue Änderung kam
-if current_seq != self.last_seq:
-    self._pending_seq = current_seq
-    self._pending_time = time.time()
-elif self._pending_seq and time.time() - self._pending_time > 0.3:
-    # Jetzt verarbeiten
-```
+**Fix:** Neuer Parameter `min_text_length: int = 5` in `ClipboardMonitor.__init__()`. Clipboard-Text wird vor dem Push gegen `len(text.strip()) >= min_text_length` geprüft.
+
+**Neue Tests:** `tests/test_clipboard_monitor.py` (15 Tests)
 
 ---
 
-### [BUG-08] Autostart funktioniert nur für kompilierte .exe
-**Status:** ✅ Bestätigt  
+### ~~[BUG-04]~~ OCR-Spracheinstellung fehlt im Settings-UI
+**Status:** 🟢 Behoben  
+**Dateien:** `settings.py`, `ocr.py`
+
+**Ursache:** `ocr_language` wurde zwar in `config.json` gespeichert, aber in `settings.py` gab es kein UI-Element zum Ändern.
+
+**Fix:**
+- Neue Funktion `get_available_languages()` in `ocr.py`: Fragt Windows-OCR-Engine ab, mappt BCP-47-Tags auf Anzeigenamen (50+ Sprachen), sortiert alphabetisch. Fallback-Liste für non-Windows.
+- `settings.py`: OptionMenu im General-Bereich — zeigt verfügbare Sprachen, speichert BCP-47-Tag in config.
+
+**Neue Tests:** `tests/test_ocr_languages.py` (11 Tests)
+
+---
+
+### ~~[BUG-05]~~ Hotkey-Kollisionsprüfung fehlt
+**Status:** 🟢 Behoben  
+**Dateien:** `settings.py`, `config.py`
+
+**Ursache:** `pynput.GlobalHotKeys` registriert denselben Key für zwei Callbacks ohne Warnung — undefiniertes Verhalten.
+
+**Fix:**
+- Neue reine Funktion `find_hotkey_collision(hotkeys)` in `config.py` (keine Tkinter-Abhängigkeit → CI-testbar)
+- `settings.py._save()`: Kollisionsprüfung vor jedem Speichern; bei Kollision wird roter Fehlertext in der UI angezeigt, Speichern abgebrochen
+- Fehlermeldung zeigt Klartext-Aktionsnamen (via `HOTKEY_ACTION_LABELS`)
+
+**Neue Tests:** `tests/test_hotkey_collision.py` (11 Tests)
+
+---
+
+### ~~[BUG-06]~~ OCR schlägt bei sehr kleinen Auswahlen fehl
+**Status:** 🟢 Behoben  
+**Datei:** `ocr.py`
+
+**Ursache:** Zu geringes Padding (10 px) und zu niedrige Mindesthöhe (64 px) gaben dem Windows-OCR-Engine zu wenig Kontext für Einzelzeichen-Captures.
+
+**Fix:**
+- `_MIN_OCR_HEIGHT`: 64 → 96 px
+- `border=10` → benannte Konstante `_OCR_PADDING = 24` px
+- Hintergrundfarbe des Padding wird vom Bild-Eckpixel abgeleitet (kein hartes Weiß)
+
+**Neue Tests:** `tests/test_ocr_upscale.py` (13 Tests)
+
+---
+
+### ~~[BUG-07]~~ Auto-Crunch: Kein Debouncing
+**Status:** 🟢 Behoben  
+**Datei:** `clipboard_monitor.py`
+
+**Ursache:** Bei schnellem Kopieren (Ctrl+C mehrfach) wurde für jeden Sequence-Number-Change sofort eine Kompression gestartet — blockierte den Monitor-Thread unnötig.
+
+**Fix:** Neuer Parameter `debounce_delay: float = 0.3` in `ClipboardMonitor.__init__()`. Der `_run()`-Loop verwendet lokale State-Variablen (`_debounce_seq`, `_debounce_time`) für eine Drei-Zustands-Logik: *detect → timer starten → warten → verarbeiten*. `debounce_delay=0` erhält das ursprüngliche Sofort-Verhalten.
+
+**Neue Tests:** `tests/test_clipboard_debounce.py` (10 Tests)
+
+---
+
+### ~~[BUG-08]~~ Autostart funktioniert nur für kompilierte .exe
+**Status:** 🟢 Behoben  
 **Datei:** `config.py`
 
-```python
-def _get_exe_path() -> str:
-    if getattr(sys, "frozen", False):
-        return sys.executable      # .exe — korrekt
-    return os.path.abspath(sys.argv[0])  # .py-Datei — startet nicht ohne Python im PATH
-```
+**Ursache:** `_get_exe_path()` schrieb im Dev-Modus den Pfad zur `.py`-Datei in den Registry-Run-Key. Windows kann `.py`-Dateien ohne Python im PATH nicht starten.
 
-Im Dev-Modus schreibt der Registry-Eintrag den Pfad zur `.py`-Datei. Windows weiß nicht, wie es eine `.py` ausführt, wenn Python nicht im `PATH` ist.
+**Fix:** `_get_exe_path()` → `_get_autostart_command()` mit korrektem Verhalten je Modus:
 
-**Fix:** Im Dev-Modus Autostart deaktivieren oder `python.exe path/to/main.py` als Registry-Value schreiben.
+| Modus | Registry-Wert vorher | Registry-Wert nachher |
+|---|---|---|
+| Frozen (.exe) | `"C:\...\app.exe"` | `"C:\...\app.exe"` (unverändert) |
+| Dev-Modus | `"C:\...\main.py"` ❌ | `"C:\Python311\python.exe" "C:\...\main.py"` ✅ |
+
+**Neue Tests:** `tests/test_autostart_command.py` (10 Tests)
 
 ---
 
-## 🟢 Behoben (durch vorherigen Bugfix-Commit)
+## 🟢 Behoben (durch vorherigen Bugfix-Commit, vor dieser Session)
 
 | ID | Problem | Fix |
 |---|---|---|
@@ -189,6 +159,15 @@ Im Dev-Modus schreibt der Registry-Eintrag den Pfad zur `.py`-Datei. Windows wei
 | ~~BUG-F8~~ | DPI-Awareness pro Scan gesetzt | Einmalig beim Start in `main.py` |
 | ~~BUG-F9~~ | Kein Singleton-Schutz | Windows Named Mutex in `main.py` |
 | ~~BUG-F10~~ | Kein Error-Log | Rotating `app.log` in `%APPDATA%` |
+
+---
+
+## ⚠️ Bekannte offene Punkte
+
+### Pre-existing Test-Failure (nicht durch diese Session verursacht)
+**Datei:** `tests/test_stack.py::TestTextStackLabel::test_label_shows_mode`  
+**Ursache:** Test prüft `"compact" in label` (Kleinschreibung), aber `stack.label()` liefert `[Compact]` (Großschreibung).  
+**Empfehlung:** Entweder Test anpassen (`"Compact" in label`) oder `stack.py` normalisieren — 1-Zeilen-Fix.
 
 ---
 

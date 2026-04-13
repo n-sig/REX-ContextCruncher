@@ -319,6 +319,53 @@ def _show_popup(entry) -> None:
     )
 
 
+def _on_screenshot_full() -> None:
+    """FR-01 — Capture full screen, OCR it, push result to stack."""
+
+    if _scan_active.is_set():
+        log.debug("_on_screenshot_full: scan already active, ignoring")
+        return
+
+    def _do_screenshot() -> None:
+        _scan_active.set()
+        try:
+            from PIL import ImageGrab
+            cfg = load_config()
+            lang = cfg.get("ocr_language", "auto")
+
+            img = ImageGrab.grab(all_screens=False)
+            text = recognise(img, language=lang)
+
+            if text:
+                compact = compact_variant(text)
+                variants = _build_variants(text, compact)
+                stack.push_variants(variants)
+                set_clipboard(text)
+                beep_success()
+
+                n_variants = len(variants)
+                if n_variants > 1:
+                    toggle_key = hotkey_bindings.get("toggle_compact", "")
+                    hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
+                    show_toast(f"🖥 Full Screen OCR\n{stack.label()}\n{n_variants} Variants{hint}")
+                else:
+                    show_toast(f"🖥 Full Screen OCR\n{stack.label()}")
+                log.info("Full-screen OCR OK — %d variants, text length %d", len(variants), len(text))
+            else:
+                beep_empty()
+                show_toast("⚠ No text recognized on screen")
+                log.info("Full-screen OCR returned no text")
+
+            if tray:
+                tray.update_menu()
+        except Exception:
+            log.exception("_on_screenshot_full: unhandled error")
+        finally:
+            _scan_active.clear()
+
+    threading.Thread(target=_do_screenshot, daemon=True).start()
+
+
 def _on_ai_compact_from_clipboard() -> None:
     """Reads clipboard, builds all variants, pushes to stack."""
     text = pyperclip.paste()
@@ -487,6 +534,7 @@ def _on_settings() -> None:
             on_toggle_compact=_on_toggle_compact,
             on_ai_compact=_on_ai_compact_from_clipboard,
             on_heatmap=_on_show_heatmap,
+            on_screenshot_full=_on_screenshot_full,
             hotkey_bindings=hotkey_bindings,
         )
         hotkey_mgr.start()
@@ -524,6 +572,7 @@ def main() -> None:
         on_toggle_compact=_on_toggle_compact,
         on_ai_compact=_on_ai_compact_from_clipboard,
         on_heatmap=_on_show_heatmap,
+        on_screenshot_full=_on_screenshot_full,
         hotkey_bindings=hotkey_bindings,
     )
     hotkey_mgr.start()
