@@ -36,5 +36,11 @@ Desktop.ini
 *.tar.gz
 *.whl
 
-# Custom
+# AI agent / internal development files
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+Bug Report - VERIFIED.md
+DEV-TRACKER.md
+TEST-RUN.md
 Berichte/

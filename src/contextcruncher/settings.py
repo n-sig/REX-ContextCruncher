@@ -1,4 +1,4 @@
-﻿"""
+"""
 settings.py — GUI settings dialog with live hotkey recorder.
 
 FIX (Bug #1): Dialog is now a tk.Toplevel owned by the global TkManager
@@ -27,6 +27,16 @@ from typing import Callable
 
 from PIL import Image, ImageTk
 from pynput import keyboard as kb
+try:
+    from pynput import mouse as _mouse_mod
+    _MOUSE_RECORD_MAP = {
+        _mouse_mod.Button.x1: "<mouse_x1>",
+        _mouse_mod.Button.x2: "<mouse_x2>",
+    }
+    _mouse_record_available = True
+except Exception:
+    _mouse_record_available = False
+    _MOUSE_RECORD_MAP = {}
 
 from contextcruncher.config import (
     load_config,
@@ -66,7 +76,7 @@ def _get_resource_path(relative_path: str) -> str:
     try:
         base_path = sys._MEIPASS  # type: ignore[attr-defined]
     except AttributeError:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        base_path = os.path.dirname(__file__)
     return os.path.join(base_path, relative_path)
 
 
@@ -88,6 +98,7 @@ class _HotkeyField(tk.Frame):
         self._recording = False
         self._pressed_keys: set[str] = set()
         self._listener: kb.Listener | None = None
+        self._mouse_listener: "_mouse_mod.Listener | None" = None  # FR-04
 
         self._label = tk.Label(
             self,
@@ -123,6 +134,10 @@ class _HotkeyField(tk.Frame):
         elif self._listener:
             self._listener.stop()
             self._listener = None
+        # FR-04 — also stop mouse listener if still running
+        if self._mouse_listener:
+            self._mouse_listener.stop()
+            self._mouse_listener = None
 
     # ── Recording lifecycle ─────────────────────────────────────────────
 
@@ -131,13 +146,51 @@ class _HotkeyField(tk.Frame):
             return
         self._recording = True
         self._pressed_keys.clear()
-        self._label.config(text="⌨ Press keys…", bg=_ACCENT_BLUE, fg="#1e1e2e")
+        hint = " or 🖱 side btn" if _mouse_record_available else ""
+        self._label.config(text=f"⌨ Press keys…{hint}", bg=_ACCENT_BLUE, fg="#1e1e2e")
 
         self._listener = kb.Listener(
             on_press=self._on_key_press,
             on_release=self._on_key_release,
         )
         self._listener.start()
+
+        # FR-04 — also listen for mouse side buttons during recording
+        if _mouse_record_available:
+            self._mouse_listener = _mouse_mod.Listener(
+                on_click=self._on_mouse_click,
+            )
+            self._mouse_listener.daemon = True
+            self._mouse_listener.start()
+
+    def _on_mouse_click(self, x, y, button, pressed: bool) -> None:
+        """FR-04 — called from pynput mouse thread during recording."""
+        if not self._recording or not pressed:
+            return
+        combo = _MOUSE_RECORD_MAP.get(button)
+        if combo:
+            # Replace pressed_keys with the mouse button token and finalize
+            self._pressed_keys = {combo}
+            get_tk_manager().schedule(self._finalize_mouse_recording)
+
+    def _finalize_mouse_recording(self) -> None:
+        """FR-04 — save mouse button combo and update label (TkUIThread)."""
+        self._recording = False
+        if self._listener:
+            self._listener.stop()
+            self._listener = None
+        if self._mouse_listener:
+            self._mouse_listener.stop()
+            self._mouse_listener = None
+
+        if self._pressed_keys:
+            self._combo = next(iter(self._pressed_keys))
+            self._label.config(
+                text=hotkey_display_name(self._combo),
+                bg=_BG_FIELD,
+                fg=_ACCENT,
+            )
+        self._pressed_keys.clear()
 
     def _on_key_press(self, key: kb.Key | kb.KeyCode | None) -> None:
         pynput_key = self._key_to_pynput(key)
@@ -197,6 +250,9 @@ class _HotkeyField(tk.Frame):
         if self._listener:
             self._listener.stop()
             self._listener = None
+        if self._mouse_listener:          # FR-04
+            self._mouse_listener.stop()
+            self._mouse_listener = None
         self._label.config(
             text=hotkey_display_name(self._combo) if self._combo else "Not assigned",
             bg=_BG_FIELD,

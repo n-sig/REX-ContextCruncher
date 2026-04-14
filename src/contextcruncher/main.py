@@ -125,6 +125,7 @@ from contextcruncher.tray import TrayApp
 from contextcruncher.normalize import compact_variant
 from contextcruncher.config import get_hotkeys, hotkey_display_name, load_config
 from contextcruncher.text_processor import minify_for_ai
+from contextcruncher.token_counter import count_tokens, context_window_warning  # FR-03
 from contextcruncher.clipboard_monitor import ClipboardMonitor
 from contextcruncher.variant_picker import show_variant_picker
 from contextcruncher.ui.heatmap import show_heatmap
@@ -377,6 +378,19 @@ def _on_ai_compact_from_clipboard() -> None:
     text = str(text)
 
     cfg = load_config()
+
+    # FR-03 — context window warning
+    warn_pct = cfg.get("context_warn_pct", 75)
+    n_tokens = count_tokens(text)
+    hit = context_window_warning(n_tokens, warn_pct=warn_pct)
+    if hit:
+        model, pct = hit
+        show_toast(
+            f"⚠ Context Window Warning\n"
+            f"{n_tokens:,} tokens = {pct:.1f}% of {model}\n"
+            f"Consider compressing before sending!"
+        )
+        log.warning("Context window warning: %d tokens = %.1f%% of %s", n_tokens, pct, model)
     lvl = cfg.get("ai_compact_level", 1)
     wrap = cfg.get("xml_wrap", False)
     tag = cfg.get("xml_tag", "context")

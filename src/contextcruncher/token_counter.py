@@ -58,6 +58,94 @@ def count_tokens(text: str) -> int:
     return int(len(text.split()) * 1.3)
 
 
+# ---------------------------------------------------------------------------
+# FR-03 — Context window sizes (tokens)
+# ---------------------------------------------------------------------------
+CONTEXT_WINDOW_TABLE: dict[str, int] = {
+    "GPT-4o":            128_000,
+    "GPT-4o mini":       128_000,
+    "o3 mini":           200_000,
+    "Claude 3.5 Sonnet": 200_000,
+    "Claude 3.5 Haiku":  200_000,
+    "Claude 3 Opus":     200_000,
+}
+
+# Warning thresholds for context window usage.
+CONTEXT_WARN_PCT  = 50   # ⚠  yellow — more than half the window consumed
+CONTEXT_ALERT_PCT = 75   # 🚨 red   — danger zone
+
+
+def context_window_usage(token_count: int) -> dict[str, float]:
+    """Return the percentage of each model's context window consumed.
+
+    Args:
+        token_count: Number of tokens in the text.
+
+    Returns:
+        ``{model_name: usage_percent}`` — values can exceed 100 when the
+        text is longer than the context window.
+    """
+    result: dict[str, float] = {}
+    for model, window in CONTEXT_WINDOW_TABLE.items():
+        pct = token_count / window * 100.0
+        result[model] = round(pct, 2)
+    return result
+
+
+def context_window_warning(token_count: int, warn_pct: float = CONTEXT_ALERT_PCT
+                           ) -> tuple[str, float] | None:
+    """Return (model_name, usage_pct) for the most-filled model above *warn_pct*.
+
+    Returns ``None`` when no model exceeds the threshold.
+
+    The model with the *smallest* context window (worst case for the user)
+    is returned so the warning is maximally informative.
+    """
+    usage = context_window_usage(token_count)
+    candidates = [(model, pct) for model, pct in usage.items() if pct >= warn_pct]
+    if not candidates:
+        return None
+    # Return worst case: model whose window is most filled
+    return max(candidates, key=lambda x: x[1])
+
+
+def cost_estimate(token_count: int) -> dict[str, float]:
+    """Return estimated input cost in US cents for each model in COST_TABLE.
+
+    Args:
+        token_count: Number of tokens (e.g. from count_tokens()).
+
+    Returns:
+        ``{model_name: cost_in_us_cents}`` for every entry in COST_TABLE.
+        Values are rounded to 6 decimal places to keep sub-cent precision.
+
+    Example::
+
+        >>> cost_estimate(1000)
+        {'GPT-4o': 0.25, 'GPT-4o mini': 0.015, ...}
+    """
+    result: dict[str, float] = {}
+    for model, usd_per_million in COST_TABLE.items():
+        cents = token_count * usd_per_million / 1_000_000 * 100
+        result[model] = round(cents, 6)
+    return result
+
+
+def format_cost(cents: float) -> str:
+    """Format a cost value in US cents for human display.
+
+    Automatically picks a sensible number of decimal places:
+    - < 0.01 ¢  → 4 decimal places  (e.g. "0.0025 ¢")
+    - < 1.00 ¢  → 3 decimal places  (e.g. "0.250 ¢")
+    - >= 1.00 ¢ → 2 decimal places  (e.g. "12.50 ¢")
+    """
+    if cents < 0.01:
+        return f"{cents:.4f} ¢"
+    if cents < 1.0:
+        return f"{cents:.3f} ¢"
+    return f"{cents:.2f} ¢"
+
+
 def token_stats(original: str, compressed: str) -> dict:
     """Compare token counts between original and compressed text.
 

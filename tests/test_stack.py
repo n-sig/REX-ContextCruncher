@@ -167,4 +167,4 @@ class TestTextStackLabel:
         assert "Original" in label
         s.toggle_compact()
         label = s.label()
-        assert "compact" in label
+        assert "Compact" in label

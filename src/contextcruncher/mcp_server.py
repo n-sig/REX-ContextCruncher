@@ -60,7 +60,7 @@ from contextcruncher.overlay import select_region
 from contextcruncher.clipboard import set_clipboard
 from contextcruncher.normalize import compact_variant
 from contextcruncher.text_processor import minify_for_ai
-from contextcruncher.token_counter import count_tokens, token_stats
+from contextcruncher.token_counter import count_tokens, token_stats, cost_estimate, format_cost
 from contextcruncher.security_scanner import redact_secrets
 from contextcruncher.skeletonizer import crunch_skeleton
 
@@ -463,7 +463,7 @@ def crunch_directory(path: str, level: int = 2, max_files: int = 20) -> dict:
 
 @mcp.tool()
 def count_text_tokens(text: str) -> dict:
-    """Count the exact number of LLM tokens in a text.
+    """Count the exact number of LLM tokens in a text and estimate input costs.
 
     Uses tiktoken cl100k_base (GPT-4o / Claude tokenizer) for accurate counts.
     Use this to understand token costs before sending text to an AI.
@@ -472,7 +472,8 @@ def count_text_tokens(text: str) -> dict:
         text: The text to count tokens for.
 
     Returns:
-        Dict with token_count, char_count, and efficiency ratio.
+        Dict with token_count, char_count, efficiency ratio, and per-model
+        cost estimates in US cents (FR-02).
     """
     if not text:
         return {"error": "No text provided."}
@@ -481,11 +482,21 @@ def count_text_tokens(text: str) -> dict:
     chars = len(text)
     ratio = round(chars / tokens, 1) if tokens > 0 else 0
 
+    # FR-02 — per-model input cost in US cents
+    costs = cost_estimate(tokens)
+    cost_summary = "  |  ".join(
+        f"{model}: {format_cost(c)}" for model, c in costs.items()
+    )
+
     return {
         "token_count": tokens,
         "char_count": chars,
         "chars_per_token": ratio,
-        "summary": f"{tokens:,} tokens ({chars:,} chars, {ratio} chars/token)",
+        "cost_estimates_usc": costs,   # raw dict for programmatic use
+        "summary": (
+            f"{tokens:,} tokens ({chars:,} chars, {ratio} chars/token)\n"
+            f"💰 {cost_summary}"
+        ),
     }
 
 

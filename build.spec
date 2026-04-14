@@ -10,7 +10,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ("assets/icon.png", "assets"),
+        ("src/contextcruncher/assets/icon.png", "assets"),
     ],
     hiddenimports=[
         # winrt modules required at runtime
@@ -30,6 +30,9 @@ a = Analysis(
         # mcp_server and new features
         "contextcruncher.mcp_server",
         "contextcruncher.skeletonizer",
+        "contextcruncher.security_scanner",
+        "contextcruncher.variant_picker",
+        "contextcruncher.normalize",
         "contextcruncher.ui.heatmap",
         # tiktoken backend
         "tiktoken",
@@ -69,5 +72,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="assets/icon.png",
+    icon="src/contextcruncher/assets/icon.png",
 )

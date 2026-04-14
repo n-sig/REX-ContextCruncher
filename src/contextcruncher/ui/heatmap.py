@@ -15,6 +15,11 @@ try:
 except ImportError:
     tiktoken = None
 
+from contextcruncher.token_counter import (  # FR-02 / FR-03
+    cost_estimate, format_cost,
+    context_window_usage, CONTEXT_WINDOW_TABLE, CONTEXT_WARN_PCT, CONTEXT_ALERT_PCT,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +51,17 @@ def _heatmap_thread(text: str) -> None:
     
     # Stats Label
     stats_lbl = ttk.Label(top, text="Calculating tokens...", font=("Segoe UI", 11, "bold"), background="#1a1a2e", foreground="#ffffff")
-    stats_lbl.pack(side="top", pady=10, fill="x", padx=10)
-    
+    stats_lbl.pack(side="top", pady=(10, 2), fill="x", padx=10)
+
+    # FR-02 — Cost estimate label (populated after tokenisation)
+    cost_lbl = tk.Label(top, text="", font=("Segoe UI", 10),
+                        bg="#1a1a2e", fg="#aaaacc", justify="left")
+    cost_lbl.pack(side="top", fill="x", padx=14, pady=(0, 2))
+
+    # FR-03 — Context window usage frame (populated after tokenisation)
+    ctx_frame = tk.Frame(top, bg="#1a1a2e")
+    ctx_frame.pack(side="top", fill="x", padx=14, pady=(0, 6))
+
     # Legend
     legend_frame = ttk.Frame(top)
     legend_frame.pack(side="top", fill="x", padx=10, pady=5)
@@ -89,9 +103,25 @@ def _heatmap_thread(text: str) -> None:
                     
             text_widget.insert("end", s_tok, tag)
             
-        stats_text = f"Total Tokens: {len(tokens):,} | Total Chars: {len(text):,} | Efficiency: {len(text)/max(1, len(tokens)):.1f} chars/token"
+        n_tokens = len(tokens)
+        stats_text = (
+            f"Total Tokens: {n_tokens:,} | "
+            f"Total Chars: {len(text):,} | "
+            f"Efficiency: {len(text)/max(1, n_tokens):.1f} chars/token"
+        )
         stats_lbl.config(text=stats_text)
-        
+
+        # FR-02 — per-model cost estimate
+        costs = cost_estimate(n_tokens)
+        cost_parts = [
+            f"{model}: {format_cost(c)}" for model, c in costs.items()
+        ]
+        cost_lbl.config(text="💰 Input cost est.:  " + "   |   ".join(cost_parts))
+
+        # FR-03 — context window usage bars
+        usage = context_window_usage(n_tokens)
+        _render_context_bars(ctx_frame, usage)
+
     except Exception as e:
         logger.error(f"Heatmap error: {e}", exc_info=True)
         text_widget.insert("end", f"Error generating heatmap: {e}\n\n{text}")
@@ -110,3 +140,51 @@ def _heatmap_thread(text: str) -> None:
     
     top.focus_force()
     top.mainloop()
+
+
+def _render_context_bars(parent: tk.Frame, usage: dict[str, float]) -> None:
+    """FR-03 — Render one mini progress bar per model inside *parent*.
+
+    Color coding:
+      < CONTEXT_WARN_PCT  → green  (safe)
+      < CONTEXT_ALERT_PCT → yellow (caution)
+      >= CONTEXT_ALERT_PCT → red   (danger)
+    """
+    _BG = "#1a1a2e"
+    _TRACK = "#2a2a4e"
+    BAR_W = 120   # canvas width in pixels
+    BAR_H = 10    # canvas height in pixels
+
+    header = tk.Label(parent, text="📐 Context window usage:",
+                      font=("Segoe UI", 10), bg=_BG, fg="#aaaacc")
+    header.grid(row=0, column=0, columnspan=99, sticky="w", pady=(0, 2))
+
+    for col, (model, pct) in enumerate(usage.items()):
+        if pct >= CONTEXT_ALERT_PCT:
+            bar_color = "#ff6b6b"   # red
+            txt_color = "#ff6b6b"
+        elif pct >= CONTEXT_WARN_PCT:
+            bar_color = "#ffd166"   # yellow
+            txt_color = "#ffd166"
+        else:
+            bar_color = "#06d6a0"   # green
+            txt_color = "#aaffcc"
+
+        fill_w = max(1, min(int(BAR_W * min(pct, 100) / 100), BAR_W))
+
+        cell = tk.Frame(parent, bg=_BG)
+        cell.grid(row=1, column=col, padx=(0, 12), sticky="w")
+
+        name_lbl = tk.Label(cell, text=model, font=("Segoe UI", 8),
+                            bg=_BG, fg="#888899")
+        name_lbl.pack(anchor="w")
+
+        canvas = tk.Canvas(cell, width=BAR_W, height=BAR_H,
+                           bg=_TRACK, highlightthickness=0)
+        canvas.pack()
+        canvas.create_rectangle(0, 0, fill_w, BAR_H, fill=bar_color, outline="")
+
+        pct_text = f"{pct:.1f}%" if pct < 100 else f"{pct:.0f}% ⚠"
+        pct_lbl = tk.Label(cell, text=pct_text, font=("Segoe UI", 8),
+                           bg=_BG, fg=txt_color)
+        pct_lbl.pack(anchor="w")

@@ -1,4 +1,4 @@
-﻿"""
+"""
 System tray icon and context menu — Greenshot-inspired.
 
 Shows scan action with hotkey hint, recent history entries (clickable),
@@ -17,7 +17,7 @@ import pystray
 from contextcruncher.stack import TextStack
 from contextcruncher.config import hotkey_display_name
 
-_ICON_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "icon.png")
+_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
 _MAX_HISTORY_ITEMS = 8  # Show at most this many items in the tray menu.
 
 

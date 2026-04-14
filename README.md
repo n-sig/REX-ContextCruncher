@@ -6,23 +6,26 @@
 
 **AI-optimized clipboard manager with screen OCR, token compression, and MCP server — no cloud, no admin, everything stays in RAM.**
 
-> 🚀 **v0.1.0-alpha** — First alpha release. Core features are complete and crash-prone threading issues have been resolved. See the [Changelog](#-changelog) for details.
+> 🚀 **v0.2.0-beta** — The Zero-Friction Update. All critical bugs resolved, four new features shipped. See the [Changelog](#-changelog) for details.
 
 ---
 
 ## ✨ Features
 
 - **Instant OCR** — Select any area on screen; text is recognized in under 1 second using the native Windows OCR engine (no internet required)
-- **AI Token Compression** — 4-level text compression system that saves up to 53% tokens for LLMs (GPT, Claude, Gemini) — verified with tiktoken benchmarks
+- **Full-Screen OCR** — Capture the entire primary monitor in one keystroke (`Ctrl+Alt+F`) — no selection needed
+- **AI Token Compression** — 4-level compression system that saves up to 60% tokens for LLMs (GPT, Claude, Gemini) — verified with tiktoken benchmarks
 - **Multi-Variant System** — Every entry stores multiple compression variants. Cycle through them with a single hotkey or use the Win+V-style popup picker
 - **Clipboard Stack** — Every scan is pushed onto a history stack (up to 50 entries). Navigate freely and paste any entry with a single keystroke
 - **Auto-Crunch Monitor** — Always runs in the background to capture all clipboard copies to your local stack for instant crunching. Turn on Auto-Crunch to actively compress and overwrite the live OS clipboard.
-- **Zero-Trust Security Scanner** — Built-in redactor automatically wipes out common secrets (API keys, JWTs, Webhooks) before processing any text.
-- **JSON/XML Skeletonizer** — Intelligently shrinks large datasets by keeping structure but cropping massive repetitive string values (great for API logs).
-- **MCP Server** — 14 MCP tools let AI agents read your screen, search clipboard history, compress text/files/directories, skeletonize payloads, and count tokens.
-- **Token Counter** — Real LLM token counts via tiktoken (cl100k_base) for accurate cost estimation
+- **Zero-Trust Security Scanner** — Built-in redactor automatically wipes out common secrets (API keys, JWTs, Webhooks, AWS/Stripe/OpenAI keys) before processing any text. Shannon-entropy catch-all for unknown secrets.
+- **JSON/XML/YAML Skeletonizer** — Intelligently shrinks large datasets by keeping structure but cropping massive repetitive string values (great for API logs).
+- **Token Cost Estimator** — Real-time cost estimate in micro-cents per model (GPT-4o, Claude, o3 mini) displayed in the Token Heatmap window.
+- **Context Window Warning** — Toast alert when compressed text exceeds the configurable threshold (default 75%) of any supported model's context window.
+- **MCP Server** — 15 MCP tools let AI agents read your screen, search clipboard history, compress text/files/directories, skeletonize payloads, count tokens, and get per-model cost estimates.
+- **Mouse Hotkeys** — Side mouse buttons (X1 / X2) can be assigned to any action via the Settings UI.
 - **Multi-Monitor** — Full DPI-aware support for multi-monitor setups
-- **Multi-Language** — Automatically detects installed Windows language packs and prioritizes EU languages (DE, EN, FR, ES, IT, PL, NL, PT). Preferred language can be set in Settings.
+- **Multi-Language OCR** — Automatically detects installed Windows language packs and prioritizes EU languages (DE, EN, FR, ES, IT, PL, NL, PT). Preferred language can be set in Settings.
 - **Visual & Audio Feedback** — Green flash overlay + system beep on successful scan; distinct tone when no text is found
 - **System Tray** — Runs quietly in the taskbar with a status menu showing the current entry and stack size
 - **Zero Footprint** — No files written, no network access, no admin privileges, no telemetry
@@ -53,13 +56,14 @@ python src/contextcruncher/main.py
 | Hotkey | Action |
 |---|---|
 | `Ctrl+Alt+S` | Open selection overlay → OCR scan → push to stack |
+| `Ctrl+Alt+F` | Full-screen OCR — captures entire primary monitor |
 | `Ctrl+Alt+C` | Compress clipboard content with AI token optimizer |
 | `Ctrl+Shift+↑` | Navigate to a newer stack entry |
 | `Ctrl+Shift+↓` | Navigate to an older stack entry |
-| `Alt+C` | Toggle Popup Variant Picker to instantly select any compression variant |
-| `Ctrl+Shift+→` | Cycle through text variants (legacy inline cycling) |
+| `Ctrl+Shift+→` | Cycle through text variants |
+| `Alt+H` | Open Token Heatmap window |
 
-All hotkeys are fully customizable in Settings. Individual hotkeys can be cleared with the `×` button next to each binding.
+All hotkeys are fully customizable in Settings. Individual hotkeys can be cleared with the `×` button next to each binding. **Mouse side buttons (X1 / X2) can also be assigned to any action.**
 
 ---
 
@@ -86,7 +90,7 @@ The Popup Picker instantly appears (bypassing Windows focus locks), grabs keyboa
 
 ## 🔌 MCP Server (Model Context Protocol)
 
-ContextCruncher exposes a powerful MCP server with 14 tools that AI agents can use directly.
+ContextCruncher exposes a powerful MCP server with 15 tools that AI agents can use directly.
 
 ### Quick Setup
 
@@ -111,7 +115,7 @@ Or register manually in your AI client config:
 }
 ```
 
-### Available Tools (14)
+### Available Tools (15)
 
 | Tool | Description |
 |---|---|
@@ -121,15 +125,17 @@ Or register manually in your AI client config:
 | `crunch_text` | Compress text with token stats |
 | `crunch_file` | Read & compress any file |
 | `crunch_directory` | Recursively compress entire directory |
-| `crunch_code_skeleton` | Skeleton of code (signatures only) or structured data (JSON/XML/YAML schema) |
-| `crunch_file_skeleton` | Read a local file from disk and return its skeleton |
-| `count_text_tokens` | Count exact LLM tokens (tiktoken) |
+| `crunch_code_skeleton` | Skeleton of code (signatures only) |
+| `crunch_file_skeleton` | Skeleton of JSON/XML/YAML file from disk |
+| `count_text_tokens` | Count exact LLM tokens + per-model cost estimates |
 | `get_brevity_prompt` | Output-brevity system prompt (~70% shorter AI responses) |
 | `search_stack` | Search clipboard/OCR history |
 | `ocr_get_stack` | Return entire history |
 | `ocr_get_current` | Return current entry |
 | `ocr_push_text` | Push text to clipboard |
 | `ocr_clear_stack` | Clear history |
+
+`count_text_tokens` returns `cost_estimates_usc` — per-model cost in micro-dollar cents (µ¢) for GPT-4o, GPT-4o mini, o3 mini, Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus.
 
 ### MCP Resources
 
@@ -177,21 +183,46 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 ### v0.2.0-beta — The Zero-Friction Update
 
 **New Features:**
-- **Zero-Trust Security Scanner** — A powerful regex-driven secret redactor that proactively suppresses sensitive API keys (OpenAI, AWS, GitHub) before they ever get near LLM outputs.
-- **JSON/XML Skeletonizer** — Radically trims monstrous payloads by preserving the schema but clamping massive string values down to minimal bytes.
-- **Aggressive Popup Variant Picker** — Completely rewrote the UI variant cycling into a professional `Win+V` style modal overlay using `ctypes` focus-stealing to immediately accept keyboard input from any application window.
-- **UI Localization** — Rebuilt the UI components from German back to fully professional English.
+- **Full-Screen OCR** (`Ctrl+Alt+F`) — Captures the entire primary monitor without any selection overlay. Wired into the same `_scan_active` lock as region OCR — no concurrent scans possible.
+- **Token Cost Estimator** — The Token Heatmap window now shows per-model cost estimates in micro-cents (µ¢) for GPT-4o, GPT-4o mini, o3 mini, Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus. The `count_text_tokens` MCP tool also returns `cost_estimates_usc`.
+- **Context Window Warning** — After every AI Compact operation a toast is shown if the result exceeds a configurable threshold (default 75%) of any supported model's context window. The Token Heatmap shows color-coded progress bars per model (green < 50%, yellow < 75%, red ≥ 75%).
+- **Mouse Side-Button Hotkeys** — X1 (Browser Back) and X2 (Browser Forward) buttons can now be bound to any action in Settings. A dedicated `_MouseHotkeyListener` runs only when at least one mouse binding is active.
+- **Zero-Trust Security Scanner** — A powerful two-pass secret redactor: named patterns for AWS, Stripe, OpenAI/Anthropic keys, JWTs, Bearer tokens; plus Shannon-entropy (≥ 4.5) catch-all for unknown secrets. Pure lowercase strings are never flagged as false positives.
+- **JSON/XML/YAML Skeletonizer** — Radically trims monstrous payloads by preserving structure but clamping long string values. Arrays are capped at 3 items. YAML supported via stdlib fallback when PyYAML is not installed.
+- **Aggressive Popup Variant Picker** — Professional `Win+V` style modal overlay using `ctypes` focus-stealing to immediately accept keyboard input from any application window.
 
-**Critical fixes:**
-- **Clipboard Monitor Logic Overhaul** — The monitor now correctly monitors ALL sequential clipboard events and pushes all copies into your history RAM stack regardless of whether Auto-Crunch is turned on/off. Removed the flawed double-increment `_ignore_next_changes` logic that caused genuine `Ctrl+C` inputs to be randomly discarded.
-- **Automated Process Killing** — Resolved `Access is denied` (WinError 5) failures in Pyinstaller builds by safely terminating active ContextCruncher instances within the `build.spec`/compilation pipeline.
-- **Tkinter threading crash (was #1 cause of silent crashes)** — All UI windows (toast, flash, overlay, settings) now run as `Toplevel` children of a single persistent `tk.Tk()` root on a dedicated `TkUIThread`. Creating multiple `tk.Tk()` instances across threads was the primary source of `RuntimeError: main thread is not in main loop` crashes.
-- **Hotkey recorder listener leak** — The pynput `kb.Listener` used for recording hotkeys in Settings now correctly stops when only modifier keys are released (previously it ran forever, intercepting all keyboard input and breaking global hotkeys until restart).
-- **Double-scan crash** — Rapid double-pressing the scan hotkey no longer opens two overlays simultaneously. A lock prevents concurrent scans.
+**Bug Fixes (v0.2.0):**
+- **Security Scanner** — Added Shannon-entropy fallback and 15+ named patterns (AWS, Stripe, OpenAI, Anthropic, Bearer tokens). Pangram false-positive guard for pure-lowercase strings.
+- **Stack Counter** — Clipboard events shorter than 5 characters (e.g. IDE background writes) are now ignored via `min_text_length` guard.
+- **Clipboard Debounce** — Rapid `Ctrl+C` bursts no longer trigger multiple compressions. `debounce_delay=0.3s` collapses bursts into a single callback.
+- **OCR Small Selections** — Minimum height raised to 96 px, padding increased to 24 px, background color derived from image corner pixel instead of hard-coded white.
+- **OCR Language Setting** — Language selector added to Settings UI; `get_available_languages()` queries the Windows OCR engine and maps BCP-47 tags to display names.
+- **Hotkey Collision Check** — `find_hotkey_collision()` in `config.py` prevents duplicate bindings from being saved. The Settings UI shows a red error and aborts save on conflict.
+- **Autostart (Dev Mode)** — Registry Run key now stores `"python.exe" "main.py"` instead of a bare `.py` path, allowing Windows to start the app regardless of PATH configuration.
+
+**Critical fixes (v0.1.x):**
+- **Tkinter threading crash** — All UI windows run as `Toplevel` children of a single persistent `tk.Tk()` root on a dedicated `TkUIThread`.
+- **Hotkey recorder listener leak** — pynput listener now correctly stops on modifier-only release.
+- **Double-scan crash** — `_scan_active` threading.Event prevents concurrent region + full-screen scans.
+- **Auto-Crunch ping-pong loop** — `_ignore_next_changes += 2` before clipboard write prevents feedback loops.
+- **Singleton guard** — Windows Named Mutex prevents multiple instances.
 
 ---
 
 ## 🗺️ Roadmap
+
+### 🧠 AI Prompt Optimizer (Planned — Opt-in only)
+
+A clipboard-aware „Prompt Master" that rewrites copied or scanned text into a precise, model- and role-optimized prompt — better AI responses, less token waste.
+
+> ⚠️ **This feature sends text to external servers.** It is strictly opt-in, requires explicit activation per session, and is incompatible with Auto-Crunch. A warning screen is shown on first use. Users who handle sensitive data should leave this disabled and rely on the local compression pipeline instead.
+
+| Feature | Details |
+|---|---|
+| **LLM Backend** | OpenAI API, Anthropic API, or local Ollama — configurable per profile |
+| **Agent Profiles** | Multiple profiles with role context (Programmer, Author, Data Analyst, Code Reviewer, …) + custom system instructions per profile |
+| **Trigger Mode** | Hotkey-only or automatic — user-configurable. Never combined with Auto-Crunch |
+| **Output** | Optimized prompt lands directly in clipboard, ready to paste |
 
 ### 🖼️ Image Cruncher (Planned)
 

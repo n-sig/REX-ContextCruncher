@@ -51,7 +51,8 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "auto_crunch": False,
     "xml_wrap": False,
     "xml_tag": "context",
-    "variant_mode": "cycle",  # "cycle" or "popup"
+    "variant_mode": "cycle",      # "cycle" or "popup"
+    "context_warn_pct": 75,       # FR-03: toast warning threshold (% of context window)
 }
 
 
@@ -131,12 +132,22 @@ def find_hotkey_collision(
 # -----------------------------------------------------------------------
 
 def hotkey_display_name(hotkey: str) -> str:
-    """Turn ``<ctrl>+<alt>+s`` into ``Ctrl+Alt+S`` for display."""
+    """Turn ``<ctrl>+<alt>+s`` into ``Ctrl+Alt+S`` for display.
+
+    FR-04: also handles ``<mouse_x1>`` → ``"Mouse Back ◀"``
+           and    ``<mouse_x2>`` → ``"Mouse Fwd ▶"``.
+    """
+    _MOUSE_LABELS: dict[str, str] = {
+        "<mouse_x1>": "Mouse Back ◀",
+        "<mouse_x2>": "Mouse Fwd ▶",
+    }
     parts = hotkey.split("+")
     pretty: list[str] = []
     for p in parts:
         p = p.strip()
-        if p.startswith("<") and p.endswith(">"):
+        if p in _MOUSE_LABELS:
+            pretty.append(_MOUSE_LABELS[p])
+        elif p.startswith("<") and p.endswith(">"):
             inner = p[1:-1]
             pretty.append(inner.replace("_", " ").title())
         else:
