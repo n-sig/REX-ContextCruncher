@@ -32,7 +32,6 @@ def test_no_collision_all_unique():
         "ai_compact":    "<ctrl>+<alt>+c",
         "navigate_up":   "<ctrl>+<shift>+<up>",
         "navigate_down": "<ctrl>+<shift>+<down>",
-        "toggle_compact":"<ctrl>+<shift>+<right>",
     }
     assert find_hotkey_collision(hotkeys) is None
 

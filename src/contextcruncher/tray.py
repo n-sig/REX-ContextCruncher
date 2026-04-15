@@ -70,13 +70,16 @@ class TrayApp:
     def __init__(
         self,
         stack: TextStack,
-        on_scan: Callable[[], None],
-        on_clear: Callable[[], None],
-        on_quit: Callable[[], None],
-        on_settings: Callable[[], None],
-        on_select_entry: Callable[[int], None],
-        on_select_compact: Callable[[int], None],
-        on_ai_compact: Callable[[], None],
+        on_scan: Callable[[], None] | None = None,
+        on_clear: Callable[[], None] | None = None,
+        on_quit: Callable[[], None] | None = None,
+        on_settings: Callable[[], None] | None = None,
+        on_select_entry: Callable[[int], None] | None = None,
+        on_select_compact: Callable[[int], None] | None = None,
+        on_select_pinned_entry: Callable[[int], None] | None = None,
+        on_select_pinned_compact: Callable[[int], None] | None = None,
+        on_ai_compact: Callable[[], None] | None = None,
+        on_search_stack: Callable[[], None] | None = None,
         on_toggle_auto_crunch: Callable[[bool], None] | None = None,
         hotkey_bindings: dict[str, str] | None = None,
     ) -> None:
@@ -87,7 +90,10 @@ class TrayApp:
         self._on_settings = on_settings
         self._on_select_entry = on_select_entry
         self._on_select_compact = on_select_compact
+        self._on_select_pinned_entry = on_select_pinned_entry
+        self._on_select_pinned_compact = on_select_pinned_compact
         self._on_ai_compact = on_ai_compact
+        self._on_search_stack = on_search_stack
         self._on_toggle_auto_crunch = on_toggle_auto_crunch
         self._hotkeys = hotkey_bindings or {}
         self._icon: pystray.Icon | None = None
@@ -117,11 +123,65 @@ class TrayApp:
             ai_label += f"    {hotkey_display_name(ai_key)}"
         items.append(pystray.MenuItem(ai_label, self._handle_ai_compact))
 
+        search_key = self._hotkeys.get("search_stack", "")
+        search_label = f"🔎  Search Stack"
+        if search_key:
+            search_label += f"    {hotkey_display_name(search_key)}"
+        items.append(pystray.MenuItem(search_label, self._handle_search_stack))
+
         # ── Auto-Crunch Toggle ──
         ac_mark = "✅" if self._auto_crunch_enabled else "❌"
         items.append(pystray.MenuItem(f"🔄  Auto-Crunch Monitor: {ac_mark}", self._handle_toggle_auto_crunch))
 
         items.append(pystray.Menu.SEPARATOR)
+
+        # ── Pin Current Action ──
+        if self._stack.size() > 0:
+            curr_entry = self._stack.current_entry()
+            if curr_entry:
+                is_pinned = any(p.original == curr_entry.original for p in self._stack.get_pinned_items())
+                if not is_pinned and self._stack.pinned_size() < 10:
+                    items.append(pystray.MenuItem("📌  Pin Current Entry", self._handle_pin_current))
+                elif is_pinned:
+                    items.append(pystray.MenuItem("📌  Current Entry Pinned", lambda: None, enabled=False))
+                elif self._stack.pinned_size() >= 10:
+                    items.append(pystray.MenuItem("📌  Pin Limit Reached (10/10)", lambda: None, enabled=False))
+            
+        items.append(pystray.Menu.SEPARATOR)
+
+        # ── Pinned items ──
+        pinned_size = self._stack.pinned_size()
+        if pinned_size > 0:
+            items.append(pystray.MenuItem(f"📌  Pinned ({pinned_size}/10):", None, enabled=False))
+            def make_entry_cb_pinned(j: int):
+                return lambda icon, item: self._on_select_pinned_entry(j) if self._on_select_pinned_entry else None
+            def make_compact_cb_pinned(j: int):
+                return lambda icon, item: self._on_select_pinned_compact(j) if self._on_select_pinned_compact else None
+            def make_unpin_cb(j: int):
+                return lambda icon, item: self._handle_unpin(j)
+                
+            for i in range(pinned_size):
+                entry = self._stack.get_pinned_items()[i]
+                preview = _truncate(entry.original)
+                unpin_item = pystray.MenuItem("❌  Unpin", make_unpin_cb(i))
+                if entry.compact is not None:
+                    compact_preview = _truncate(entry.compact)
+                    sub = pystray.Menu(
+                        pystray.MenuItem(f"📄  Original: {preview}", make_entry_cb_pinned(i)),
+                        pystray.MenuItem(f"🔢  Compact: {compact_preview}", make_compact_cb_pinned(i)),
+                        pystray.Menu.SEPARATOR,
+                        unpin_item
+                    )
+                    marker = " ✎" if entry.compact else ""
+                    items.append(pystray.MenuItem(f"   [{i + 1}] {preview}{marker}", sub))
+                else:
+                    sub = pystray.Menu(
+                        pystray.MenuItem(f"📄  Original: {preview}", make_entry_cb_pinned(i)),
+                        pystray.Menu.SEPARATOR,
+                        unpin_item
+                    )
+                    items.append(pystray.MenuItem(f"   [{i + 1}] {preview}", sub))
+            items.append(pystray.Menu.SEPARATOR)
 
         # ── History entries ──
         size = self._stack.size()
@@ -141,7 +201,7 @@ class TrayApp:
 
             # Show the most recent entries.
             for i in range(min(size, _MAX_HISTORY_ITEMS)):
-                entry = self._stack._items[i]
+                entry = self._stack.get_entry(i)
                 preview = _truncate(entry.original)
 
                 if entry.compact is not None:
@@ -193,6 +253,14 @@ class TrayApp:
     # Handlers
     # ------------------------------------------------------------------
 
+    def _handle_pin_current(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        self._stack.pin_current()
+        self.update_menu()
+        
+    def _handle_unpin(self, index: int) -> None:
+        self._stack.unpin(index)
+        self.update_menu()
+
     def _handle_scan(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if self._on_scan:
             self._on_scan()
@@ -200,6 +268,10 @@ class TrayApp:
     def _handle_ai_compact(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if self._on_ai_compact:
             self._on_ai_compact()
+
+    def _handle_search_stack(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_search_stack:
+            self._on_search_stack()
 
     def _handle_toggle_auto_crunch(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         self._auto_crunch_enabled = not self._auto_crunch_enabled

@@ -128,6 +128,7 @@ from contextcruncher.text_processor import minify_for_ai
 from contextcruncher.token_counter import count_tokens, context_window_warning  # FR-03
 from contextcruncher.clipboard_monitor import ClipboardMonitor
 from contextcruncher.variant_picker import show_variant_picker
+from contextcruncher.search_picker import show_search_picker
 from contextcruncher.ui.heatmap import show_heatmap
 
 import pyperclip
@@ -136,7 +137,7 @@ from contextcruncher.settings import open_settings
 # -----------------------------------------------------------------------
 # Global state
 # -----------------------------------------------------------------------
-stack = TextStack()
+stack = TextStack(min_length=5)  # mirrors ClipboardMonitor.min_text_length
 tray: TrayApp | None = None
 hotkey_bindings = get_hotkeys()
 hotkey_mgr: HotkeyManager | None = None
@@ -160,25 +161,20 @@ def _build_variants(text: str, compact_text: str | None = None) -> list[Variant]
         variants.append(Variant(label="Compact", text=compact_text, saved_percent=round(pct, 1)))
         seen_texts.add(compact_text)
 
-    ai1, saved1 = minify_for_ai(text, level=1)
+    ai1, stats1 = minify_for_ai(text, level=1)
     if ai1 not in seen_texts:
-        variants.append(Variant(label="AI Lv.1", text=ai1, saved_percent=round(saved1, 1)))
+        variants.append(Variant(label="AI Lv.1", text=ai1, saved_percent=round(stats1["saved_percent"], 1)))
         seen_texts.add(ai1)
 
-    ai2, saved2 = minify_for_ai(text, level=2)
+    ai2, stats2 = minify_for_ai(text, level=2)
     if ai2 not in seen_texts:
-        variants.append(Variant(label="AI Lv.2", text=ai2, saved_percent=round(saved2, 1)))
+        variants.append(Variant(label="AI Lv.2", text=ai2, saved_percent=round(stats2["saved_percent"], 1)))
         seen_texts.add(ai2)
 
-    ai3, saved3 = minify_for_ai(text, level=3)
+    ai3, stats3 = minify_for_ai(text, level=3)
     if ai3 not in seen_texts:
-        variants.append(Variant(label="AI Lv.3", text=ai3, saved_percent=round(saved3, 1)))
+        variants.append(Variant(label="AI Lv.3", text=ai3, saved_percent=round(stats3["saved_percent"], 1)))
         seen_texts.add(ai3)
-
-    ai4, saved4 = minify_for_ai(text, level=4)
-    if ai4 not in seen_texts:
-        variants.append(Variant(label="⚠ Lv.4 Exp.", text=ai4, saved_percent=round(saved4, 1)))
-        seen_texts.add(ai4)
 
     return variants
 
@@ -216,9 +212,7 @@ def _on_scan() -> None:
 
                     n_variants = len(variants)
                     if n_variants > 1:
-                        toggle_key = hotkey_bindings.get("toggle_compact", "")
-                        hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-                        show_toast(f"✓ {stack.label()}\n{n_variants} Variants{hint}")
+                        show_toast(f"✓ {stack.label()}\n{n_variants} Variants")
                     else:
                         show_toast(f"✓ {stack.label()}")
                     log.info("Scan OK — %d variants, text length %d", len(variants), len(text))
@@ -261,27 +255,6 @@ def _on_navigate_down() -> None:
         tray.update_menu()
 
 
-def _on_toggle_compact() -> None:
-    """Cycle variant or open popup, depending on config."""
-    cfg = load_config()
-    mode = cfg.get("variant_mode", "cycle")
-    entry = stack.current_entry()
-
-    if entry is None:
-        beep_empty()
-        return
-
-    if len(entry.variants) <= 1:
-        beep_empty()
-        show_toast("Only 1 variant available")
-        return
-
-    if mode == "popup":
-        _show_popup(entry)
-    else:
-        _cycle_variant()
-
-
 def _cycle_variant() -> None:
     """Cycle to the next variant."""
     result = stack.cycle_variant()
@@ -320,6 +293,26 @@ def _show_popup(entry) -> None:
     )
 
 
+def _on_search_stack() -> None:
+    """Show the stack search UI."""
+    def _on_search_select(idx: int) -> None:
+        entry = stack.get_entry(idx)
+        if entry:
+            stack.set_cursor(idx)
+            if tray:
+                tray.update_menu()
+            _show_popup(entry)
+
+    def _on_search_select_pinned(idx: int) -> None:
+        if 0 <= idx < stack.pinned_size():
+            entry = stack.get_pinned_items()[idx]
+            if tray:
+                tray.update_menu()
+            _show_popup(entry)
+
+    show_search_picker(stack, _on_search_select, _on_search_select_pinned)
+
+
 def _on_screenshot_full() -> None:
     """FR-01 — Capture full screen, OCR it, push result to stack."""
 
@@ -346,9 +339,7 @@ def _on_screenshot_full() -> None:
 
                 n_variants = len(variants)
                 if n_variants > 1:
-                    toggle_key = hotkey_bindings.get("toggle_compact", "")
-                    hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-                    show_toast(f"🖥 Full Screen OCR\n{stack.label()}\n{n_variants} Variants{hint}")
+                    show_toast(f"🖥 Full Screen OCR\n{stack.label()}\n{n_variants} Variants")
                 else:
                     show_toast(f"🖥 Full Screen OCR\n{stack.label()}")
                 log.info("Full-screen OCR OK — %d variants, text length %d", len(variants), len(text))
@@ -391,7 +382,7 @@ def _on_ai_compact_from_clipboard() -> None:
             f"Consider compressing before sending!"
         )
         log.warning("Context window warning: %d tokens = %.1f%% of %s", n_tokens, pct, model)
-    lvl = cfg.get("ai_compact_level", 1)
+    lvl = max(1, min(3, cfg.get("ai_compact_level", 1)))
     wrap = cfg.get("xml_wrap", False)
     tag = cfg.get("xml_tag", "context")
 
@@ -399,8 +390,8 @@ def _on_ai_compact_from_clipboard() -> None:
     variants = _build_variants(text, compact)
 
     if wrap and tag:
-        xml_text, xml_saved = minify_for_ai(text, level=lvl, xml_wrap=True, xml_tag=tag)
-        variants.append(Variant(label=f"XML Lv.{lvl}", text=xml_text, saved_percent=round(xml_saved, 1)))
+        xml_text, xml_stats = minify_for_ai(text, level=lvl, xml_wrap=True, xml_tag=tag)
+        variants.append(Variant(label=f"XML Lv.{lvl}", text=xml_text, saved_percent=round(xml_stats["saved_percent"], 1)))
 
     stack.push_variants(variants)
 
@@ -417,11 +408,9 @@ def _on_ai_compact_from_clipboard() -> None:
         active_v = entry.active_variant
         if active_v:
             set_clipboard(active_v.text)
-            toggle_key = hotkey_bindings.get("toggle_compact", "")
-            hint = f"\n{hotkey_display_name(toggle_key)} = switch" if toggle_key else ""
             show_toast(
-                f"✓ {active_v.label} active (-{active_v.saved_percent:.0f}%)"
-                f"\n{len(variants)} Variants{hint}"
+                f"✓ {active_v.label} active (-{active_v.saved_percent:.0f}%)\n"
+                f"{len(variants)} Variants"
             )
 
     beep_success()
@@ -443,7 +432,7 @@ def _handle_clipboard_change(text: str) -> str | None:
     """Callback for ClipboardMonitor. Always adds to stack, auto-crunches if enabled."""
     cfg = load_config()
 
-    lvl = cfg.get("ai_compact_level", 1)
+    lvl = max(1, min(3, cfg.get("ai_compact_level", 1)))
     wrap = cfg.get("xml_wrap", False)
     tag = cfg.get("xml_tag", "context")
 
@@ -473,9 +462,7 @@ def _handle_clipboard_change(text: str) -> str | None:
 
     # Auto-crunch is enabled, notify user and return minified text
     if n > 1:
-        toggle_key = hotkey_bindings.get("toggle_compact", "")
-        hint = f" → {hotkey_display_name(toggle_key)}" if toggle_key else ""
-        show_toast(f"🔄 Auto-Crunch: {n} Variants{hint}")
+        show_toast(f"🔄 Auto-Crunch: {n} Variants")
 
     minified, _ = minify_for_ai(text, level=lvl, xml_wrap=wrap, xml_tag=tag)
     return minified
@@ -526,6 +513,25 @@ def _on_select_compact(index: int) -> None:
             tray.update_menu()
 
 
+def _on_select_pinned_entry(index: int) -> None:
+    """User clicked a pinned entry in the tray."""
+    if 0 <= index < stack.pinned_size():
+        entry = stack.get_pinned_items()[index]
+        set_clipboard(entry.original)
+        entry.active_index = 0
+        beep_success()
+        show_toast(f"📌 Copied: {entry.original[:40]}")
+
+def _on_select_pinned_compact(index: int) -> None:
+    if 0 <= index < stack.pinned_size():
+        entry = stack.get_pinned_items()[index]
+        if entry.compact:
+            set_clipboard(entry.compact)
+            entry.active_index = 1
+            beep_success()
+            show_toast(f"📌 Compact: {entry.compact[:40]}")
+
+
 def _on_clear() -> None:
     """Clear the entire stack."""
     stack.clear()
@@ -545,7 +551,6 @@ def _on_settings() -> None:
             on_scan=_on_scan,
             on_navigate_up=_on_navigate_up,
             on_navigate_down=_on_navigate_down,
-            on_toggle_compact=_on_toggle_compact,
             on_ai_compact=_on_ai_compact_from_clipboard,
             on_heatmap=_on_show_heatmap,
             on_screenshot_full=_on_screenshot_full,
@@ -583,7 +588,7 @@ def main() -> None:
         on_scan=_on_scan,
         on_navigate_up=_on_navigate_up,
         on_navigate_down=_on_navigate_down,
-        on_toggle_compact=_on_toggle_compact,
+        on_search_stack=_on_search_stack,
         on_ai_compact=_on_ai_compact_from_clipboard,
         on_heatmap=_on_show_heatmap,
         on_screenshot_full=_on_screenshot_full,
@@ -607,7 +612,10 @@ def main() -> None:
         on_settings=_on_settings,
         on_select_entry=_on_select_entry,
         on_select_compact=_on_select_compact,
+        on_select_pinned_entry=_on_select_pinned_entry,
+        on_select_pinned_compact=_on_select_pinned_compact,
         on_ai_compact=_on_ai_compact_from_clipboard,
+        on_search_stack=_on_search_stack,
         on_toggle_auto_crunch=_on_toggle_auto_crunch,
         hotkey_bindings=hotkey_bindings,
     )

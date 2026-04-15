@@ -89,7 +89,7 @@ class HotkeyManager:
         on_scan: HotkeyAction,
         on_navigate_up: HotkeyAction,
         on_navigate_down: HotkeyAction,
-        on_toggle_compact: HotkeyAction | None = None,
+        on_search_stack: HotkeyAction | None = None,
         on_ai_compact: HotkeyAction | None = None,
         on_heatmap: HotkeyAction | None = None,
         on_screenshot_full: HotkeyAction | None = None,   # FR-01
@@ -98,7 +98,7 @@ class HotkeyManager:
         self._on_scan = on_scan
         self._on_navigate_up = on_navigate_up
         self._on_navigate_down = on_navigate_down
-        self._on_toggle_compact = on_toggle_compact
+        self._on_search_stack = on_search_stack
         self._on_ai_compact = on_ai_compact
         self._on_heatmap = on_heatmap
         self._on_screenshot_full = on_screenshot_full      # FR-01
@@ -117,7 +117,7 @@ class HotkeyManager:
             "ai_compact": self._on_ai_compact,
             "navigate_up": self._on_navigate_up,
             "navigate_down": self._on_navigate_down,
-            "toggle_compact": self._on_toggle_compact,
+            "search_stack": self._on_search_stack,
             "hotkey_heatmap": self._on_heatmap,
         }
 

@@ -38,7 +38,7 @@ DEFAULT_HOTKEYS: dict[str, str] = {
     "ai_compact": "<ctrl>+<alt>+c",
     "navigate_up": "<ctrl>+<shift>+<up>",
     "navigate_down": "<ctrl>+<shift>+<down>",
-    "toggle_compact": "<ctrl>+<shift>+<right>",
+    "search_stack": "<ctrl>+<shift>+<right>",
     "hotkey_heatmap": "<alt>+h",
 }
 
@@ -161,7 +161,7 @@ HOTKEY_ACTION_LABELS: dict[str, str] = {
     "ai_compact": "AI Cruncher",
     "navigate_up": "Newer ↑",
     "navigate_down": "Older ↓",
-    "toggle_compact": "Variants ↔",
+    "search_stack": "Search Stack 🔎",
     "hotkey_heatmap": "Token Heatmap",
 }
 

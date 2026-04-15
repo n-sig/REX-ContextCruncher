@@ -64,24 +64,7 @@ class TestTextStackCompact:
         # Default: shows original.
         assert s.current() == "4532 1234 5678 9012"
 
-    def test_toggle_to_compact(self):
-        s = TextStack()
-        s.push("4532 1234 5678 9012", compact="4532123456789012")
-        result = s.toggle_compact()
-        assert result == "4532123456789012"
-        assert s.current() == "4532123456789012"
 
-    def test_toggle_back_to_original(self):
-        s = TextStack()
-        s.push("4532 1234 5678 9012", compact="4532123456789012")
-        s.toggle_compact()  # -> compact
-        s.toggle_compact()  # -> original
-        assert s.current() == "4532 1234 5678 9012"
-
-    def test_toggle_no_compact_returns_none(self):
-        s = TextStack()
-        s.push("Hello World")
-        assert s.toggle_compact() is None
 
     def test_has_compact(self):
         s = TextStack()
@@ -93,20 +76,7 @@ class TestTextStackCompact:
         s.push("Hello")
         assert s.has_compact() is False
 
-    def test_toggle_empty_stack(self):
-        s = TextStack()
-        assert s.toggle_compact() is None
 
-    def test_navigate_preserves_toggle_state(self):
-        s = TextStack()
-        s.push("A A", compact="AA")
-        s.push("B B", compact="BB")
-        s.toggle_compact()  # Toggle current (B B -> BB)
-        assert s.current() == "BB"
-        s.navigate(+1)  # Go to older entry (A A)
-        assert s.current() == "A A"  # Not toggled.
-        s.navigate(-1)  # Back to B
-        assert s.current() == "BB"  # Toggle state preserved.
 
 
 class TestTextStackCursorReset:
@@ -165,6 +135,6 @@ class TestTextStackLabel:
         s.push("4532 1234", compact="45321234")
         label = s.label()
         assert "Original" in label
-        s.toggle_compact()
+        s.cycle_variant()
         label = s.label()
         assert "Compact" in label

@@ -83,6 +83,62 @@ def _crude_js_ts_skeleton(code: str) -> str:
     return "\n".join(skeleton_lines)
 
 
+def _tree_sitter_js_ts_skeleton(code: str, ext: str) -> str:
+    """
+    Parse JS/TS using tree-sitter and strip method/function bodies.
+    Requires `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-typescript`.
+    Falls back to _crude_js_ts_skeleton.
+    """
+    try:
+        import tree_sitter
+        if ext in ("ts", "tsx"):
+            import tree_sitter_typescript
+            lang_func = tree_sitter_typescript.language_tsx if ext == "tsx" else tree_sitter_typescript.language_typescript
+            LANGUAGE = tree_sitter.Language(lang_func())
+        else:
+            import tree_sitter_javascript
+            LANGUAGE = tree_sitter.Language(tree_sitter_javascript.language())
+    except ImportError:
+        logger.debug(f"tree-sitter packages missing, using fallback for .{ext}")
+        return _crude_js_ts_skeleton(code)
+
+    try:
+        parser = tree_sitter.Parser(LANGUAGE)
+        # tree_sitter in python < 0.22 vs 0.22 API change guard
+        if hasattr(parser, "set_language"):
+            parser.set_language(LANGUAGE) # Older API
+
+        code_bytes = code.encode("utf8")
+        tree = parser.parse(code_bytes)
+
+        blocks = []
+        def walk(node):
+            if node.type == 'statement_block':
+                # Check if it's a function-like body
+                if node.parent and node.parent.type in (
+                    'function_declaration', 'method_definition', 'arrow_function', 
+                    'function', 'generator_function', 'generator_function_declaration'
+                ):
+                    blocks.append((node.start_byte, node.end_byte))
+            for child in node.children:
+                walk(child)
+        
+        walk(tree.root_node)
+
+        # Replace from back to front to avoid shifting offsets
+        blocks.sort(key=lambda x: x[0], reverse=True)
+        mutable_bytes = bytearray(code_bytes)
+        for start, end in blocks:
+            # Replaces the insides of { ... }
+            if mutable_bytes[start:start+1] == b'{' and mutable_bytes[end-1:end] == b'}':
+                mutable_bytes[start+1:end-1] = b" /* stripped */ "
+            
+        return mutable_bytes.decode("utf8")
+    except Exception as e:
+        logger.warning(f"Tree-sitter parse failed, using fallback: {e}")
+        return _crude_js_ts_skeleton(code)
+
+
 # ---------------------------------------------------------------------------
 # JSON  (stdlib — accurate)
 # ---------------------------------------------------------------------------
@@ -195,7 +251,7 @@ def crunch_skeleton(text: str, filename: str = "code.py") -> str:
         return crunch_python(text)
 
     if ext in ("js", "ts", "jsx", "tsx"):
-        return _crude_js_ts_skeleton(text)
+        return _tree_sitter_js_ts_skeleton(text, ext)
 
     if ext == "json":
         try:

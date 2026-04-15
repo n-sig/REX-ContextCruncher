@@ -3,12 +3,18 @@ heatmap.py - Visual token budget UI.
 
 Shows a popup window highlighting expensive LLM tokens in red
 and efficient tokens in green.
+
+FIX (Audit F-03): Uses tk.Toplevel owned by the global TkManager instead of
+creating a new tk.Tk(), which violated design decision #1 (single Tk root)
+and could cause tkinter crashes.
 """
 
 import tkinter as tk
 from tkinter import ttk
 import logging
 import threading
+
+from contextcruncher.feedback import get_tk_manager
 
 try:
     import tiktoken
@@ -32,16 +38,15 @@ def show_heatmap(text: str) -> None:
         logger.error("tiktoken not installed. Cannot show heatmap.")
         return
 
-    threading.Thread(
-        target=_heatmap_thread,
-        args=(text,),
-        daemon=True,
-    ).start()
+    get_tk_manager().schedule(_create_heatmap, text)
 
 
-def _heatmap_thread(text: str) -> None:
-    """Creates a Tk window showing the token heatmap for the given text."""
-    top = tk.Tk()
+def _create_heatmap(text: str) -> None:
+    """Build the heatmap as a Toplevel on TkUIThread."""
+    mgr = get_tk_manager()
+    if mgr.root is None:
+        return
+    top = tk.Toplevel(mgr.root)
     top.title("ContextCruncher 🌡️ Token Heatmap")
     top.geometry("800x600")
     top.attributes("-topmost", True)
@@ -80,7 +85,7 @@ def _heatmap_thread(text: str) -> None:
     text_widget.tag_config("t_whitespace", background="#f0f0f0") # just plain for pure space
     
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
+        enc = tiktoken.get_encoding("o200k_base")
         tokens = enc.encode(text)
         
         for t in tokens:
@@ -111,15 +116,19 @@ def _heatmap_thread(text: str) -> None:
         )
         stats_lbl.config(text=stats_text)
 
-        # FR-02 — per-model cost estimate
-        costs = cost_estimate(n_tokens)
-        cost_parts = [
-            f"{model}: {format_cost(c)}" for model, c in costs.items()
-        ]
+        # FR-02 — per-model cost estimate (using exact per-model tokens)
+        costs = cost_estimate(text)
+        cost_parts = []
+        for model, c in costs.items():
+            label = f"{model}: {format_cost(c)}"
+            if "Claude" in model:
+                label += " (~est)"
+            cost_parts.append(label)
+            
         cost_lbl.config(text="💰 Input cost est.:  " + "   |   ".join(cost_parts))
 
-        # FR-03 — context window usage bars
-        usage = context_window_usage(n_tokens)
+        # FR-03 — context window usage bars (using exact per-model tokens)
+        usage = context_window_usage(text)
         _render_context_bars(ctx_frame, usage)
 
     except Exception as e:
@@ -139,7 +148,6 @@ def _heatmap_thread(text: str) -> None:
     top.geometry(f"{w}x{h}+{x}+{y}")
     
     top.focus_force()
-    top.mainloop()
 
 
 def _render_context_bars(parent: tk.Frame, usage: dict[str, float]) -> None:

@@ -11,9 +11,17 @@ or pick from a popup.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+import os
+import json
+import logging
+from contextcruncher.config import _APP_DIR
+
+logger = logging.getLogger(__name__)
 
 MAX_STACK_SIZE = 50
+MAX_PINNED_SIZE = 10
+PINNED_PATH = os.path.join(_APP_DIR, "pinned.json")
 
 
 @dataclass
@@ -50,6 +58,17 @@ class _Entry:
         if len(self.variants) > 1:
             return self.variants[1].text
         return None
+
+    @property
+    def label(self) -> str:
+        if self.variants:
+            return self.variants[self.active_index].label
+        return ""
+
+    def saved_percent(self) -> float:
+        if self.variants:
+            return self.variants[self.active_index].saved_percent
+        return 0.0
 
     @property
     def active_variant(self) -> Variant | None:
@@ -94,20 +113,54 @@ class _Entry:
         else:
             self.active_index = 0
 
-    def toggle(self) -> str | None:
-        """Legacy compat: toggle between first two variants."""
-        result = self.cycle()
-        if result is None:
-            return None
-        return result.text
+    @classmethod
+    def from_dict(cls, data: dict) -> _Entry:
+        variants = [Variant(**v) for v in data.get("variants", [])]
+        return cls(variants=variants, active_index=data.get("active_index", 0))
+
+    def to_dict(self) -> dict:
+        return {
+            "variants": [asdict(v) for v in self.variants],
+            "active_index": self.active_index
+        }
 
 
 class TextStack:
     """LIFO stack with a navigable cursor and a fixed maximum size (FIFO eviction)."""
 
-    def __init__(self, max_size: int = MAX_STACK_SIZE) -> None:
+    def __init__(self, max_size: int = MAX_STACK_SIZE, min_length: int = 0) -> None:
+        """
+        :param max_size: Maximum number of entries before oldest are evicted.
+        :param min_length: Minimum character length (stripped) for an entry to be
+            accepted.  Entries shorter than this are silently dropped.  Defaults
+            to 0 (no minimum).  Set to 5 (same as ClipboardMonitor's default) to
+            keep filtering behaviour consistent across all entry paths (clipboard,
+            MCP tools, hotkeys, etc.).
+        """
         self._items: deque[_Entry] = deque(maxlen=max_size)
+        self._pinned_items: deque[_Entry] = deque(maxlen=MAX_PINNED_SIZE)
         self._cursor: int = 0
+        self._min_length: int = max(0, min_length)
+        self._load_pinned()
+
+    def _load_pinned(self) -> None:
+        try:
+            if os.path.isfile(PINNED_PATH):
+                with open(PINNED_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for item in data:
+                        self._pinned_items.append(_Entry.from_dict(item))
+        except Exception as e:
+            logger.warning(f"Failed to load pinned items: {e}")
+
+    def _save_pinned(self) -> None:
+        try:
+            os.makedirs(_APP_DIR, exist_ok=True)
+            with open(PINNED_PATH, "w", encoding="utf-8") as f:
+                data = [item.to_dict() for item in self._pinned_items]
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"Failed to save pinned items: {e}")
 
     # ------------------------------------------------------------------
     # Public API
@@ -121,11 +174,20 @@ class TextStack:
         """
         if not variants or not variants[0].text:
             return
-            
+
+        # min_length guard — mirrors ClipboardMonitor's min_text_length so that
+        # all entry paths (clipboard, MCP, hotkeys) enforce the same floor.
+        if self._min_length > 0 and len(variants[0].text.strip()) < self._min_length:
+            logger.debug(
+                "TextStack: ignoring short entry (%d chars < min %d)",
+                len(variants[0].text.strip()), self._min_length,
+            )
+            return
+
         # Avoid duplicate consecutive pushes of the exactly identical original text
         if self._items and self._items[0].original == variants[0].text:
             return
-            
+
         self._items.appendleft(_Entry(variants=variants))
         self._cursor = 0
 
@@ -183,12 +245,6 @@ class TextStack:
             return None
         return self._items[self._cursor].set_variant(index)
 
-    def toggle_compact(self) -> str | None:
-        """Legacy: Toggle between original and compact."""
-        if not self._items:
-            return None
-        return self._items[self._cursor].toggle()
-
     def has_compact(self) -> bool:
         """Return True if the current entry has more than one variant."""
         if not self._items:
@@ -220,6 +276,32 @@ class TextStack:
     def size(self) -> int:
         """Return the number of entries in the stack."""
         return len(self._items)
+
+    def pinned_size(self) -> int:
+        return len(self._pinned_items)
+
+    def get_pinned_items(self) -> list[_Entry]:
+        return list(self._pinned_items)
+
+    def pin_current(self) -> bool:
+        """Pin the current stack entry."""
+        if not self._items:
+            return False
+        entry = self._items[self._cursor]
+        for p in self._pinned_items:
+            if p.original == entry.original:
+                return False
+        # Create a deep-ish copy 
+        self._pinned_items.append(_Entry.from_dict(entry.to_dict()))
+        self._save_pinned()
+        return True
+
+    def unpin(self, index: int) -> bool:
+        if 0 <= index < len(self._pinned_items):
+            del self._pinned_items[index]
+            self._save_pinned()
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Helpers

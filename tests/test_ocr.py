@@ -1,4 +1,4 @@
-﻿"""Tests for contextcruncher.ocr — Windows OCR engine.
+"""Tests for contextcruncher.ocr — Windows OCR engine.
 
 These tests require the winsdk package and Windows 10/11.
 They are skipped automatically on unsupported platforms.

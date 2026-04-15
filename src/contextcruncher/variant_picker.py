@@ -4,13 +4,20 @@ variant_picker.py — Win+V-style popup to pick a text variant.
 Shows all available variants for the current stack entry in a dark,
 semi-transparent popup. The user clicks one to copy it, or presses
 ESC to close without changes.
+
+FIX (Audit F-02): Uses tk.Toplevel owned by the global TkManager instead of
+creating a new tk.Tk(), which violated design decision #1 (single Tk root)
+and could cause tkinter crashes.
 """
 
 from __future__ import annotations
 
+import ctypes
 import threading
 import tkinter as tk
 from typing import Callable, TYPE_CHECKING
+
+from contextcruncher.feedback import get_tk_manager
 
 if TYPE_CHECKING:
     from contextcruncher.stack import Variant
@@ -47,19 +54,21 @@ def show_variant_picker(
     if not variants or len(variants) <= 1:
         return
     _picker_active = True
-    threading.Thread(
-        target=_picker_thread,
-        args=(variants, active_index, on_select),
-        daemon=True,
-    ).start()
+    get_tk_manager().schedule(
+        _create_picker, variants, active_index, on_select,
+    )
 
 
-def _picker_thread(
+def _create_picker(
     variants: list["Variant"],
     active_index: int,
     on_select: Callable[[int], None],
 ) -> None:
-    root = tk.Tk()
+    """Build the variant picker as a Toplevel on TkUIThread."""
+    mgr = get_tk_manager()
+    if mgr.root is None:
+        return
+    root = tk.Toplevel(mgr.root)
     root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.attributes("-alpha", 0.95)
@@ -223,7 +232,6 @@ def _picker_thread(
     root.attributes("-topmost", True)
     root.focus_force()
 
-    import ctypes
     try:
         hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
         user32 = ctypes.windll.user32
@@ -244,5 +252,3 @@ def _picker_thread(
             user32.SetFocus(hwnd)
     except Exception:
         pass
-
-    root.mainloop()

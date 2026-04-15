@@ -16,11 +16,21 @@ from collections import Counter
 
 logger = logging.getLogger(__name__)
 
+import os
+import sys
+import json
+from pathlib import Path
+
+if sys.platform == "win32":
+    _APP_DIR = Path(os.getenv("APPDATA", os.path.expanduser("~"))) / "ContextCruncher"
+else:
+    _APP_DIR = Path("~/.config/ContextCruncher").expanduser()
+
 # ---------------------------------------------------------------------------
 # Pass 1 — Known patterns (compiled once at import time)
 # ---------------------------------------------------------------------------
 
-SECRETS_PATTERNS: dict[str, re.Pattern] = {
+_DEFAULT_SECRETS_PATTERNS: dict[str, re.Pattern] = {
     # AWS Access Key ID  (AKIA + 16 uppercase alphanum)
     "[AWS_KEY_REDACTED]": re.compile(r'\bAKIA[0-9A-Z]{16}\b'),
 
@@ -58,6 +68,25 @@ SECRETS_PATTERNS: dict[str, re.Pattern] = {
     # IPv4 addresses  (NOTE: may fire on version strings like 1.0.0.1 — acceptable trade-off)
     "[IP_REDACTED]": re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'),
 }
+
+SECRETS_PATTERNS: dict[str, re.Pattern] = dict(_DEFAULT_SECRETS_PATTERNS)
+
+def _load_custom_patterns():
+    try:
+        path = _APP_DIR / "custom_patterns.json"
+        if path.is_file():
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    for tag, pattern_str in data.items():
+                        try:
+                            SECRETS_PATTERNS[tag] = re.compile(pattern_str)
+                        except Exception as e:
+                            logger.warning(f"Failed to compile custom pattern {tag}: {e}")
+    except Exception:
+        pass
+
+_load_custom_patterns()
 
 
 # ---------------------------------------------------------------------------

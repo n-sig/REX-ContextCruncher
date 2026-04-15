@@ -429,7 +429,6 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
             "Level 1 (Light / Code)": 1,
             "Level 2 (Token-Cruncher)": 2,
             "Level 3 (Annihilator)": 3,
-            "Level 4 (Experimental: Not AI-compatible!)": 4,
         }
         level_var = tk.StringVar()
         current_lvl = cfg.get("ai_compact_level", 1)

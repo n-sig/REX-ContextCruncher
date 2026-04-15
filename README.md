@@ -16,13 +16,16 @@
 - **Full-Screen OCR** — Capture the entire primary monitor in one keystroke (`Ctrl+Alt+F`) — no selection needed
 - **AI Token Compression** — 4-level compression system that saves up to 60% tokens for LLMs (GPT, Claude, Gemini) — verified with tiktoken benchmarks
 - **Multi-Variant System** — Every entry stores multiple compression variants. Cycle through them with a single hotkey or use the Win+V-style popup picker
-- **Clipboard Stack** — Every scan is pushed onto a history stack (up to 50 entries). Navigate freely and paste any entry with a single keystroke
+- **Clipboard Stack** — Every scan is pushed onto a history stack (up to 50 entries). Navigate freely and paste any entry with a single keystroke. **New:** Pin up to 10 entries to make them survive application restarts!
+- **Search Overlay** — Press `Ctrl+Shift+F` to search through your stack history and pinned elements interactively.
 - **Auto-Crunch Monitor** — Always runs in the background to capture all clipboard copies to your local stack for instant crunching. Turn on Auto-Crunch to actively compress and overwrite the live OS clipboard.
 - **Zero-Trust Security Scanner** — Built-in redactor automatically wipes out common secrets (API keys, JWTs, Webhooks, AWS/Stripe/OpenAI keys) before processing any text. Shannon-entropy catch-all for unknown secrets.
-- **JSON/XML/YAML Skeletonizer** — Intelligently shrinks large datasets by keeping structure but cropping massive repetitive string values (great for API logs).
-- **Token Cost Estimator** — Real-time cost estimate in micro-cents per model (GPT-4o, Claude, o3 mini) displayed in the Token Heatmap window.
+- **Code & Payload Skeletonizer** — Intelligently shrinks large datasets by keeping structure but cropping massive repetitive string values (JSON/XML/YAML) and uses `tree-sitter` for robust JavaScript/TypeScript function blanking.
+- **Token Cost Estimator** — Real-time cost estimate in micro-cents per model (GPT-4o, Claude, o3 mini) displayed in the Token Heatmap window. Tracks precisely decoupled tokens for GPT (`o200k_base`) and Claude (`cl100k_base` estimation).
 - **Context Window Warning** — Toast alert when compressed text exceeds the configurable threshold (default 75%) of any supported model's context window.
-- **MCP Server** — 15 MCP tools let AI agents read your screen, search clipboard history, compress text/files/directories, skeletonize payloads, count tokens, and get per-model cost estimates.
+- **MCP Server** — 22 MCP tools let AI agents read your screen, search clipboard history, compress text/files/directories, skeletonize payloads, count tokens, get per-model cost estimates, manage context intelligently, and optimize prompts via LLM.
+- **AI Context Manager** — Smart context tools for AI agents: `smart_crunch` routes content through optimal compression pipelines, `budget_loader` loads files to exact token counts, `diff_crunch` sends only what changed, and `context_pack` bundles multiple files into a single budget-constrained context block with keyword relevance ranking.
+- **AI Prompt Optimizer** — Rewrites raw text into structured, role-optimized prompts using configurable LLM backends (OpenAI, Anthropic, Ollama). 5 built-in profiles + custom profile support.
 - **Mouse Hotkeys** — Side mouse buttons (X1 / X2) can be assigned to any action via the Settings UI.
 - **Multi-Monitor** — Full DPI-aware support for multi-monitor setups
 - **Multi-Language OCR** — Automatically detects installed Windows language packs and prioritizes EU languages (DE, EN, FR, ES, IT, PL, NL, PT). Preferred language can be set in Settings.
@@ -39,6 +42,8 @@
 2. Download `ContextCruncher.exe`
 3. Run it — the icon appears in your system tray
 4. Done. No Python installation needed.
+
+📖 **New to ContextCruncher?** Read the **[GUI User Guide](docs/user-guide.md)** for a full walkthrough of all features.
 
 ### Build from Source
 
@@ -61,6 +66,7 @@ python src/contextcruncher/main.py
 | `Ctrl+Shift+↑` | Navigate to a newer stack entry |
 | `Ctrl+Shift+↓` | Navigate to an older stack entry |
 | `Ctrl+Shift+→` | Cycle through text variants |
+| `Ctrl+Shift+F` | Open Search Overlay to find stack history/pins |
 | `Alt+H` | Open Token Heatmap window |
 
 All hotkeys are fully customizable in Settings. Individual hotkeys can be cleared with the `×` button next to each binding. **Mouse side buttons (X1 / X2) can also be assigned to any action.**
@@ -69,14 +75,13 @@ All hotkeys are fully customizable in Settings. Individual hotkeys can be cleare
 
 ## 🤖 AI Token Compression
 
-ContextCruncher uses a 4-level compression system optimized for LLM token efficiency:
+ContextCruncher uses a 3-level compression system optimized for LLM token efficiency:
 
 | Level | Name | Description | Token Savings* |
 |---|---|---|---|
 | 1 | 🪶 Light | Whitespace normalization only — safe for code | ~2% |
 | 2 | 🦖 Token-Cruncher | URLs, markdown, filler phrases. Great for prose. | ~23% |
 | 3 | 💀 Annihilator | Strips comments, timestamps, paths, dedup. Logs/data. | ~30% |
-| 4 | ☢️ Experimental | Maximum density. Bullets→CSV, punct removal, Bag-Of-Words. | ~55% |
 
 *\* Measured with tiktoken cl100k\_base across 5 sample categories. Run `python evals/run_eval.py` to reproduce.*
 
@@ -90,7 +95,7 @@ The Popup Picker instantly appears (bypassing Windows focus locks), grabs keyboa
 
 ## 🔌 MCP Server (Model Context Protocol)
 
-ContextCruncher exposes a powerful MCP server with 15 tools that AI agents can use directly.
+ContextCruncher exposes a powerful MCP server with **22 tools** that AI agents can use directly.
 
 ### Quick Setup
 
@@ -115,7 +120,13 @@ Or register manually in your AI client config:
 }
 ```
 
-### Available Tools (15)
+📖 **Full setup guide including Ollama:** [`docs/mcp-setup.md`](docs/mcp-setup.md)  
+📖 **All tools with examples:** [`docs/tools-reference.md`](docs/tools-reference.md)  
+📖 **GUI user guide (tray, OCR, hotkeys, compression):** [`docs/user-guide.md`](docs/user-guide.md)
+
+### Available Tools (22)
+
+#### Core Tools
 
 | Tool | Description |
 |---|---|
@@ -130,12 +141,33 @@ Or register manually in your AI client config:
 | `count_text_tokens` | Count exact LLM tokens + per-model cost estimates |
 | `get_brevity_prompt` | Output-brevity system prompt (~70% shorter AI responses) |
 | `search_stack` | Search clipboard/OCR history |
-| `ocr_get_stack` | Return entire history |
 | `ocr_get_current` | Return current entry |
 | `ocr_push_text` | Push text to clipboard |
 | `ocr_clear_stack` | Clear history |
 
+#### 🧠 AI Context Manager Tools
+
+| Tool | Description |
+|---|---|
+| `smart_crunch` | Intelligently compress text based on content type + agent intent |
+| `explain_compression` | Preview what each compression strategy would do (no mutation) |
+| `budget_loader` | Load a file into exactly N tokens with auto-detected priority |
+| `diff_crunch` | Only return what changed since the last load (delta caching) |
+| `context_pack` | Pack multiple files into one context block within a token budget |
+
 `count_text_tokens` returns `cost_estimates_usc` — per-model cost in micro-dollar cents (µ¢) for GPT-4o, GPT-4o mini, o3 mini, Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus.
+
+`context_pack` accepts a `question` parameter for keyword-based relevance ranking — files matching more keywords from the question get a larger share of the token budget.
+
+#### 🎯 AI Prompt Optimizer Tools
+
+| Tool | Description |
+|---|---|
+| `optimize_prompt` | Rewrite text into a structured, role-optimized LLM prompt |
+| `list_optimizer_profiles` | List all available optimizer profiles (built-in + custom) |
+| `manage_optimizer_profile` | Create/delete profiles or configure API keys |
+
+`optimize_prompt` supports 3 providers: **OpenAI**, **Anthropic**, and **Ollama** (local). Configure API keys via `manage_optimizer_profile` with `action="set_keys"`.
 
 ### MCP Resources
 
@@ -180,16 +212,20 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 
 ## 📋 Changelog
 
+> Full changelog with audit fixes: [`CHANGELOG.md`](CHANGELOG.md)
+
 ### v0.2.0-beta — The Zero-Friction Update
 
 **New Features:**
 - **Full-Screen OCR** (`Ctrl+Alt+F`) — Captures the entire primary monitor without any selection overlay. Wired into the same `_scan_active` lock as region OCR — no concurrent scans possible.
 - **Token Cost Estimator** — The Token Heatmap window now shows per-model cost estimates in micro-cents (µ¢) for GPT-4o, GPT-4o mini, o3 mini, Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus. The `count_text_tokens` MCP tool also returns `cost_estimates_usc`.
 - **Context Window Warning** — After every AI Compact operation a toast is shown if the result exceeds a configurable threshold (default 75%) of any supported model's context window. The Token Heatmap shows color-coded progress bars per model (green < 50%, yellow < 75%, red ≥ 75%).
+- **Exact Multi-Tokenizer Tracking** — Support for exact multi-tokenizer computation (`o200k_base` for OpenAI models, separated estimations for Claude).
 - **Mouse Side-Button Hotkeys** — X1 (Browser Back) and X2 (Browser Forward) buttons can now be bound to any action in Settings. A dedicated `_MouseHotkeyListener` runs only when at least one mouse binding is active.
 - **Zero-Trust Security Scanner** — A powerful two-pass secret redactor: named patterns for AWS, Stripe, OpenAI/Anthropic keys, JWTs, Bearer tokens; plus Shannon-entropy (≥ 4.5) catch-all for unknown secrets. Pure lowercase strings are never flagged as false positives.
-- **JSON/XML/YAML Skeletonizer** — Radically trims monstrous payloads by preserving structure but clamping long string values. Arrays are capped at 3 items. YAML supported via stdlib fallback when PyYAML is not installed.
+- **Code/Data Skeletonizer** — Radically trims monstrous payloads by preserving structure but clamping long string values (JSON/XML/YAML) and uses a Depth-First Search `tree-sitter` integration to safely clear up JS/TS function bodies without corrupting arrow functions or generic syntax.
 - **Aggressive Popup Variant Picker** — Professional `Win+V` style modal overlay using `ctypes` focus-stealing to immediately accept keyboard input from any application window.
+- **Search Overlay & Pinned Stack** — Visually search (`Ctrl+Shift+F`) older history entries or pin up to 10 entries via the system tray so they survive application restarts. Pinned items rank as top favorites in the search overlay.
 
 **Bug Fixes (v0.2.0):**
 - **Security Scanner** — Added Shannon-entropy fallback and 15+ named patterns (AWS, Stripe, OpenAI, Anthropic, Bearer tokens). Pangram false-positive guard for pure-lowercase strings.
@@ -201,6 +237,7 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 - **Autostart (Dev Mode)** — Registry Run key now stores `"python.exe" "main.py"` instead of a bare `.py` path, allowing Windows to start the app regardless of PATH configuration.
 
 **Critical fixes (v0.1.x):**
+- **Tokenizer mismatch** — Heatmap now calculates metrics per individual model logic instead of applying universal tokens.
 - **Tkinter threading crash** — All UI windows run as `Toplevel` children of a single persistent `tk.Tk()` root on a dedicated `TkUIThread`.
 - **Hotkey recorder listener leak** — pynput listener now correctly stops on modifier-only release.
 - **Double-scan crash** — `_scan_active` threading.Event prevents concurrent region + full-screen scans.
@@ -211,24 +248,31 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 
 ## 🗺️ Roadmap
 
-### 🧠 AI Prompt Optimizer (Planned — Opt-in only)
+> Full roadmap: [`docs/roadmap.md`](docs/roadmap.md)
 
-A clipboard-aware „Prompt Master" that rewrites copied or scanned text into a precise, model- and role-optimized prompt — better AI responses, less token waste.
+### ✅ Recently Shipped
 
-> ⚠️ **This feature sends text to external servers.** It is strictly opt-in, requires explicit activation per session, and is incompatible with Auto-Crunch. A warning screen is shown on first use. Users who handle sensitive data should leave this disabled and rely on the local compression pipeline instead.
+| Feature | Status | Details |
+|---|---|---|
+| **AI Context Manager** | ✅ v0.2.0 | `smart_crunch`, `budget_loader`, `diff_crunch`, `context_pack`, `explain_compression` — 5 tools for intelligent context engineering |
+| **AI Prompt Optimizer** | ✅ v0.2.0 | `optimize_prompt`, `list_optimizer_profiles`, `manage_optimizer_profile` — rewrite text into structured prompts via OpenAI, Anthropic, or Ollama |
 
-| Feature | Details |
+### 🔜 Next Up
+
+#### 🗺️ `repo_map` — Intelligent Codebase Map
+
+A single tool call that gives the AI a **structural overview of an entire repository** within a token budget. Instead of blindly loading files, the AI gets a compressed map showing every file, its purpose, key signatures, and line count — all fitted into e.g. 2,000 tokens.
+
+| Aspect | Details |
 |---|---|
-| **LLM Backend** | OpenAI API, Anthropic API, or local Ollama — configurable per profile |
-| **Agent Profiles** | Multiple profiles with role context (Programmer, Author, Data Analyst, Code Reviewer, …) + custom system instructions per profile |
-| **Trigger Mode** | Hotkey-only or automatic — user-configurable. Never combined with Auto-Crunch |
-| **Output** | Optimized prompt lands directly in clipboard, ready to paste |
+| **Input** | Directory path + token budget |
+| **Output** | File tree with per-file summaries (purpose, LOC, key exports) |
+| **Uses** | Existing skeletonizer + token counter — zero new dependencies |
+| **Value** | AI understands a 50K-token repo in 500 tokens. Perfect entry point before `context_pack` or `budget_loader`. |
 
 ### 🖼️ Image Cruncher (Planned)
 
 Vision models like GPT-4o and Claude charge per **image tile** (typically 512×512 px). A 520×520 image costs 4 tiles; a smart resize to 512×512 drops it to 1 tile — same quality, fraction of the cost.
-
-**Planned features:**
 
 | Feature | What it does | Benefit |
 |---|---|---|
@@ -299,8 +343,7 @@ pyinstaller build.spec
 
 - **Windows only** — Requires Windows 10 (version 1903+) or Windows 11 for the native OCR engine
 - **Language packs required** — OCR quality depends on the Windows language packs installed
-- **No persistent history** — The stack is cleared when the application exits (by design)
-- **Level 4 compression** — Experimental vowel-removal mode produces output most AIs cannot interpret correctly
+- **No persistent history for general entries** — The stack is cleared when the application exits (by design). Only your 10 explicitly pinned shortcuts are saved persistently via JSON.
 
 ---
 
