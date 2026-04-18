@@ -53,6 +53,11 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "xml_tag": "context",
     "variant_mode": "cycle",      # "cycle" or "popup"
     "context_warn_pct": 75,       # FR-03: toast warning threshold (% of context window)
+    # AI Compression (LLM-based)
+    "ai_compress_enabled": False,
+    "ai_compress_provider": "ollama",    # "openai" | "anthropic" | "ollama"
+    "ai_compress_model": "llama3.2",     # default model per provider
+    "ai_compress_aggressive": False,     # use aggressive compression profile
 }
 
 

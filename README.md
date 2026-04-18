@@ -6,7 +6,7 @@
 
 **AI-optimized clipboard manager with screen OCR, token compression, and MCP server — no cloud, no admin, everything stays in RAM.**
 
-> 🚀 **v0.2.0-beta** — The Zero-Friction Update. All critical bugs resolved, four new features shipped. See the [Changelog](#-changelog) for details.
+> 🚀 **v2.0** — AI-Compression Update. New `ai_compress` MCP tool with hybrid neuro-symbolic extraction, code-safe deterministic compression (BUG-13 fix), and a CLAUDE.md fidelity benchmark. See the [Changelog](CHANGELOG.md) for details.
 
 ---
 
@@ -14,7 +14,7 @@
 
 - **Instant OCR** — Select any area on screen; text is recognized in under 1 second using the native Windows OCR engine (no internet required)
 - **Full-Screen OCR** — Capture the entire primary monitor in one keystroke (`Ctrl+Alt+F`) — no selection needed
-- **AI Token Compression** — 4-level compression system that saves up to 60% tokens for LLMs (GPT, Claude, Gemini) — verified with tiktoken benchmarks
+- **AI Token Compression** — Single-pass, content-type-aware compression saves typically 25–45% of prose/log tokens (and preserves code 1:1) for LLMs (GPT, Claude, Gemini) — verified with tiktoken benchmarks
 - **Multi-Variant System** — Every entry stores multiple compression variants. Cycle through them with a single hotkey or use the Win+V-style popup picker
 - **Clipboard Stack** — Every scan is pushed onto a history stack (up to 50 entries). Navigate freely and paste any entry with a single keystroke. **New:** Pin up to 10 entries to make them survive application restarts!
 - **Search Overlay** — Press `Ctrl+Shift+F` to search through your stack history and pinned elements interactively.
@@ -23,7 +23,7 @@
 - **Code & Payload Skeletonizer** — Intelligently shrinks large datasets by keeping structure but cropping massive repetitive string values (JSON/XML/YAML) and uses `tree-sitter` for robust JavaScript/TypeScript function blanking.
 - **Token Cost Estimator** — Real-time cost estimate in micro-cents per model (GPT-4o, Claude, o3 mini) displayed in the Token Heatmap window. Tracks precisely decoupled tokens for GPT (`o200k_base`) and Claude (`cl100k_base` estimation).
 - **Context Window Warning** — Toast alert when compressed text exceeds the configurable threshold (default 75%) of any supported model's context window.
-- **MCP Server** — 22 MCP tools let AI agents read your screen, search clipboard history, compress text/files/directories, skeletonize payloads, count tokens, get per-model cost estimates, manage context intelligently, and optimize prompts via LLM.
+- **MCP Server** — 23 MCP tools let AI agents read your screen, search clipboard history, compress text/files/directories, skeletonize payloads, count tokens, get per-model cost estimates, manage context intelligently, optimize prompts, and run opt-in LLM-based semantic compression (`ai_compress`).
 - **AI Context Manager** — Smart context tools for AI agents: `smart_crunch` routes content through optimal compression pipelines, `budget_loader` loads files to exact token counts, `diff_crunch` sends only what changed, and `context_pack` bundles multiple files into a single budget-constrained context block with keyword relevance ranking.
 - **AI Prompt Optimizer** — Rewrites raw text into structured, role-optimized prompts using configurable LLM backends (OpenAI, Anthropic, Ollama). 5 built-in profiles + custom profile support.
 - **Mouse Hotkeys** — Side mouse buttons (X1 / X2) can be assigned to any action via the Settings UI.
@@ -75,15 +75,32 @@ All hotkeys are fully customizable in Settings. Individual hotkeys can be cleare
 
 ## 🤖 AI Token Compression
 
-ContextCruncher uses a 3-level compression system optimized for LLM token efficiency:
+ContextCruncher uses a **single-pass, content-type-aware** deterministic compression pipeline. There are no user-selected levels — every call runs the same smart pipeline, and the pipeline itself decides which phases apply based on detected content type (prose / code / markdown / logs / JSON / XML / YAML / agent config / ...).
 
-| Level | Name | Description | Token Savings* |
-|---|---|---|---|
-| 1 | 🪶 Light | Whitespace normalization only — safe for code | ~2% |
-| 2 | 🦖 Token-Cruncher | URLs, markdown, filler phrases. Great for prose. | ~23% |
-| 3 | 💀 Annihilator | Strips comments, timestamps, paths, dedup. Logs/data. | ~30% |
+| Phase | What it does |
+|---|---|
+| 0. Detect & Protect | Classify content type; extract fenced code blocks so nothing downstream can mangle them. |
+| 1. Normalize | Whitespace, quotes, bullets, indentation (code-safe variant for `code_*` types). |
+| 2. Trim | Remove filler phrases and low-signal stop words (prose only). |
+| 3. Optimize | Synonym replacement + URL/path shortening (prose only). |
+| 4. Structural | Markdown table + list compaction, separator collapsing (prose only). |
+| 5. Dedup & Finalize | Sliding-window dedup + final whitespace cleanup. |
 
-*\* Measured with tiktoken cl100k\_base across 5 sample categories. Run `python evals/run_eval.py` to reproduce.*
+Typical savings (measured with tiktoken `cl100k_base` / `o200k_base`):
+
+- **Prose / markdown:** ~25–30%
+- **Logs / structured output:** up to ~45%
+- **Raw source code:** ~5–10% (indentation is preserved — see below)
+
+Run `python evals/run_eval.py` to reproduce, or `python evals/claude_md_benchmark.py` for a fidelity-focused benchmark on CLAUDE.md-style files.
+
+### Code-Safe Mode (v2.0)
+
+Raw Python/JS source code (even without fences) is now auto-detected via `_detect_raw_code_language()` and routed through a **code-safe pipeline** that preserves indentation, single-letter parameter names, and string literals. Destructive prose phases (`_phase_trim`, `_phase_optimize`, `_phase_telegraphic`, `_phase_structural`) are skipped for `content_type = code_*`. Prose compression ratios are unaffected.
+
+### Hybrid AI-Compression (v2.0, opt-in)
+
+The new `ai_compress` MCP tool goes beyond deterministic heuristics: it routes text through a **4-layer protective extraction** (code blocks, tables, file/URL references, constraint keywords) before asking a configurable LLM (OpenAI / Anthropic / Ollama) to rewrite the prose between them. Extracted regions are swapped back in verbatim after compression, so identifiers, CLI commands, and NEVER/ALWAYS-style constraints always survive — even under aggressive rewriting. `ai_compress` is **opt-in and off by default**; no network traffic unless you explicitly call it.
 
 ### Multi-Variant Selection
 
@@ -95,7 +112,7 @@ The Popup Picker instantly appears (bypassing Windows focus locks), grabs keyboa
 
 ## 🔌 MCP Server (Model Context Protocol)
 
-ContextCruncher exposes a powerful MCP server with **22 tools** that AI agents can use directly.
+ContextCruncher exposes a powerful MCP server with **23 tools** that AI agents can use directly.
 
 ### Quick Setup
 
@@ -124,7 +141,7 @@ Or register manually in your AI client config:
 📖 **All tools with examples:** [`docs/tools-reference.md`](docs/tools-reference.md)  
 📖 **GUI user guide (tray, OCR, hotkeys, compression):** [`docs/user-guide.md`](docs/user-guide.md)
 
-### Available Tools (22)
+### Available Tools (23)
 
 #### Core Tools
 
@@ -164,10 +181,11 @@ Or register manually in your AI client config:
 | Tool | Description |
 |---|---|
 | `optimize_prompt` | Rewrite text into a structured, role-optimized LLM prompt |
+| `ai_compress` | **v2.0:** LLM-based semantic compression with hybrid structure preservation |
 | `list_optimizer_profiles` | List all available optimizer profiles (built-in + custom) |
 | `manage_optimizer_profile` | Create/delete profiles or configure API keys |
 
-`optimize_prompt` supports 3 providers: **OpenAI**, **Anthropic**, and **Ollama** (local). Configure API keys via `manage_optimizer_profile` with `action="set_keys"`.
+`optimize_prompt` and `ai_compress` both support 3 providers: **OpenAI**, **Anthropic**, and **Ollama** (local). Configure API keys via `manage_optimizer_profile` with `action="set_keys"`. `ai_compress` accepts an `aggressive` flag and optional `provider` / `model` overrides; it is opt-in and makes no network calls unless invoked.
 
 ### MCP Resources
 
@@ -212,7 +230,21 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 
 ## 📋 Changelog
 
-> Full changelog with audit fixes: [`CHANGELOG.md`](CHANGELOG.md)
+> Full changelog: [`CHANGELOG.md`](CHANGELOG.md)
+
+### v2.0 — AI-Compression Update
+
+- **`ai_compress` MCP tool** — LLM-based semantic compression with hybrid neuro-symbolic extraction. Supports OpenAI, Anthropic, Ollama. Opt-in, off by default.
+- **Code-Safe Compression (BUG-13 fix)** — Raw Python/JS source (even without fences) is now detected via `_detect_raw_code_language()` and routed through a code-safe pipeline that preserves indentation, single-letter identifiers, and string literals. `ast.parse` round-trip verified.
+- **CLAUDE.md fidelity benchmark** — New `evals/claude_md_benchmark.py` measures preservation rates for filenames, CLI commands, backtick identifiers and `NEVER`/`ALWAYS` constraint keywords — not just token savings. JSON export supported.
+- **Test suite:** 444 passed · 10 skipped · 0 failed.
+
+### v1.0 — Hybrid Extraction + Provider UX
+
+- 4-layer protective extraction (code / tables / refs / constraints) in `prompt_optimizer.py`.
+- `agent_config` content-type routing in `content_router.py`.
+- Friendly provider error messages (Timeout / 401 / 404 / 429 / ConnectError) + Ollama connection probe.
+- `__version__` export, version shown in tray menu and settings dialog.
 
 ### v0.2.0-beta — The Zero-Friction Update
 
@@ -284,7 +316,7 @@ Vision models like GPT-4o and Claude charge per **image tile** (typically 512×5
 ### 🖥️ Desktop Application (Planned)
 
 - **Visual clipboard history** with thumbnails and text previews
-- **Side-by-side variant comparison** — see Original vs. AI Lv.3 at a glance
+- **Side-by-side variant comparison** — see Original vs. compressed output at a glance
 - **Image cruncher controls** — resize sliders, format picker, quality preview
 - **Drag & drop** — drop files or images directly into the window
 - **Statistics dashboard** — track total tokens saved, compression ratios over time

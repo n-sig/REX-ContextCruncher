@@ -34,6 +34,14 @@ a = Analysis(
         "contextcruncher.variant_picker",
         "contextcruncher.normalize",
         "contextcruncher.ui.heatmap",
+        # AI Context Manager (FR-05) — content routing + hybrid LLM compression
+        "contextcruncher.content_router",
+        "contextcruncher.prompt_optimizer",
+        "contextcruncher.diff_cache",
+        "contextcruncher.search_picker",
+        # httpx backend (used by prompt_optimizer for all provider calls)
+        "httpx",
+        "httpcore",
         # tiktoken backend
         "tiktoken",
         "tiktoken_ext.openai_public",

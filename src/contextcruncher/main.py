@@ -125,11 +125,13 @@ from contextcruncher.tray import TrayApp
 from contextcruncher.normalize import compact_variant
 from contextcruncher.config import get_hotkeys, hotkey_display_name, load_config
 from contextcruncher.text_processor import minify_for_ai
+from contextcruncher.content_router import smart_route, detect_content_type
 from contextcruncher.token_counter import count_tokens, context_window_warning  # FR-03
 from contextcruncher.clipboard_monitor import ClipboardMonitor
 from contextcruncher.variant_picker import show_variant_picker
 from contextcruncher.search_picker import show_search_picker
 from contextcruncher.ui.heatmap import show_heatmap
+from contextcruncher.prompt_optimizer import compress as ai_compress, is_ai_compress_configured
 
 import pyperclip
 from contextcruncher.settings import open_settings
@@ -152,29 +154,29 @@ _scan_active = threading.Event()
 # -----------------------------------------------------------------------
 
 def _build_variants(text: str, compact_text: str | None = None) -> list[Variant]:
-    """Build the full list of variants for a text entry."""
-    variants = [Variant(label="Original", text=text, saved_percent=0.0)]
-    seen_texts = {text}
+    """Build the variant list for a text entry: Original + Compressed.
 
-    if compact_text and compact_text not in seen_texts:
+    Uses smart_route() from content_router to detect content type (code, JSON,
+    logs, prose) and apply the optimal compression strategy automatically.
+    Code gets skeleton extraction, prose gets telegraphic compression, etc.
+
+    The compact_text (number normalization) is merged into the compressed
+    variant when present — it doesn't get its own slot anymore.
+    """
+    variants = [Variant(label="Original", text=text, saved_percent=0.0)]
+
+    # Content-aware compression via smart_route
+    result = smart_route(text, intent="understand")
+    if result.compressed_text and result.compressed_text != text and result.saved_percent > 0:
+        variants.append(Variant(
+            label="Compressed",
+            text=result.compressed_text,
+            saved_percent=round(result.saved_percent, 1),
+        ))
+    elif compact_text and compact_text != text:
+        # Smart route did nothing but we have a number-compact variant
         pct = ((len(text) - len(compact_text)) / len(text)) * 100.0 if len(text) > 0 else 0.0
         variants.append(Variant(label="Compact", text=compact_text, saved_percent=round(pct, 1)))
-        seen_texts.add(compact_text)
-
-    ai1, stats1 = minify_for_ai(text, level=1)
-    if ai1 not in seen_texts:
-        variants.append(Variant(label="AI Lv.1", text=ai1, saved_percent=round(stats1["saved_percent"], 1)))
-        seen_texts.add(ai1)
-
-    ai2, stats2 = minify_for_ai(text, level=2)
-    if ai2 not in seen_texts:
-        variants.append(Variant(label="AI Lv.2", text=ai2, saved_percent=round(stats2["saved_percent"], 1)))
-        seen_texts.add(ai2)
-
-    ai3, stats3 = minify_for_ai(text, level=3)
-    if ai3 not in seen_texts:
-        variants.append(Variant(label="AI Lv.3", text=ai3, saved_percent=round(stats3["saved_percent"], 1)))
-        seen_texts.add(ai3)
 
     return variants
 
@@ -359,7 +361,12 @@ def _on_screenshot_full() -> None:
 
 
 def _on_ai_compact_from_clipboard() -> None:
-    """Reads clipboard, builds all variants, pushes to stack."""
+    """Reads clipboard, compresses, pushes Original + Compressed to stack.
+
+    If AI compression is enabled, fires an async LLM call.  When the LLM
+    returns, the "AI" variant is appended to the *same* stack entry and the
+    tray/picker are refreshed.
+    """
     text = pyperclip.paste()
     if not text or not str(text).strip():
         beep_empty()
@@ -382,25 +389,21 @@ def _on_ai_compact_from_clipboard() -> None:
             f"Consider compressing before sending!"
         )
         log.warning("Context window warning: %d tokens = %.1f%% of %s", n_tokens, pct, model)
-    lvl = max(1, min(3, cfg.get("ai_compact_level", 1)))
-    wrap = cfg.get("xml_wrap", False)
-    tag = cfg.get("xml_tag", "context")
 
     compact = compact_variant(text)
     variants = _build_variants(text, compact)
 
+    wrap = cfg.get("xml_wrap", False)
+    tag = cfg.get("xml_tag", "context")
     if wrap and tag:
-        xml_text, xml_stats = minify_for_ai(text, level=lvl, xml_wrap=True, xml_tag=tag)
-        variants.append(Variant(label=f"XML Lv.{lvl}", text=xml_text, saved_percent=round(xml_stats["saved_percent"], 1)))
+        xml_text, xml_stats = minify_for_ai(text, xml_wrap=True, xml_tag=tag)
+        if xml_text != text:
+            variants.append(Variant(label="XML", text=xml_text, saved_percent=round(xml_stats["saved_percent"], 1)))
 
     stack.push_variants(variants)
 
-    best_idx = 0
-    for i, v in enumerate(variants):
-        if f"Lv.{lvl}" in v.label:
-            best_idx = i
-    if best_idx == 0 and len(variants) > 1:
-        best_idx = len(variants) - 1
+    # Auto-select the compressed variant (last non-original)
+    best_idx = len(variants) - 1 if len(variants) > 1 else 0
 
     entry = stack.current_entry()
     if entry:
@@ -417,6 +420,79 @@ def _on_ai_compact_from_clipboard() -> None:
     if tray:
         tray.update_menu()
 
+    # ── Async AI compression ──────────────────────────────────────────
+    if is_ai_compress_configured():
+        # Feed the ORIGINAL text to the LLM (not the det-compressed version).
+        # Rationale: det-compressed text has abbreviations and missing stop words
+        # that confuse smaller local LLMs. The LLM needs full semantic context
+        # to compress intelligently. Secret redaction happens inside compress().
+        _target_entry = entry  # capture reference for the async callback
+        aggressive = cfg.get("ai_compress_aggressive", False)
+
+        show_toast("🤖 AI compressing...")
+        log.info("AI compression started (provider=%s, aggressive=%s)",
+                 cfg.get("ai_compress_provider", "?"), aggressive)
+
+        def _run_ai_compress() -> None:
+            try:
+                result = ai_compress(text, aggressive=aggressive)
+
+                if result.error:
+                    show_toast(f"⚠ AI Compress: {result.error[:80]}")
+                    log.warning("AI compress error: %s", result.error)
+                    return
+
+                if not result.compressed_text or result.saved_percent <= 0:
+                    show_toast("🤖 AI: no further savings")
+                    log.info("AI compress returned no improvement")
+                    return
+
+                # Calculate savings relative to original text (not the det_text)
+                orig_tokens = count_tokens(text)
+                ai_tokens = count_tokens(result.compressed_text)
+                total_saved = ((orig_tokens - ai_tokens) / orig_tokens * 100.0) if orig_tokens > 0 else 0.0
+
+                ai_variant = Variant(
+                    label="AI",
+                    text=result.compressed_text,
+                    saved_percent=round(total_saved, 1),
+                )
+
+                # Append to the same entry (thread-safe: list.append is atomic in CPython)
+                if _target_entry is not None:
+                    _target_entry.variants.append(ai_variant)
+                    show_toast(
+                        f"🤖 AI variant ready (-{total_saved:.0f}%)\n"
+                        f"{result.latency_ms}ms · {result.provider}/{result.model}"
+                    )
+                    log.info(
+                        "AI compress OK: %d→%d tokens (-%.1f%%), %dms, %s/%s",
+                        orig_tokens, ai_tokens, total_saved,
+                        result.latency_ms, result.provider, result.model,
+                    )
+                    # Surface any post-validation warnings from the LLM pass
+                    # (numbers/dates/deadlines lost during compression, etc.)
+                    if result.warnings:
+                        # Show at most 3 warnings in one toast so it stays readable
+                        preview = "\n".join(f"• {w}" for w in result.warnings[:3])
+                        more = (
+                            f"\n(+{len(result.warnings) - 3} more)"
+                            if len(result.warnings) > 3 else ""
+                        )
+                        show_toast(f"⚠ AI validation:\n{preview}{more}")
+                        log.warning(
+                            "AI compress produced %d validation warnings: %s",
+                            len(result.warnings), result.warnings,
+                        )
+                    if tray:
+                        tray.update_menu()
+
+            except Exception:
+                log.exception("AI compress: unhandled error")
+                show_toast("⚠ AI Compress failed")
+
+        threading.Thread(target=_run_ai_compress, daemon=True).start()
+
 
 def _on_show_heatmap() -> None:
     """Show the token heatmap for the current clipboard contents."""
@@ -432,27 +508,18 @@ def _handle_clipboard_change(text: str) -> str | None:
     """Callback for ClipboardMonitor. Always adds to stack, auto-crunches if enabled."""
     cfg = load_config()
 
-    lvl = max(1, min(3, cfg.get("ai_compact_level", 1)))
-    wrap = cfg.get("xml_wrap", False)
-    tag = cfg.get("xml_tag", "context")
-
     compact = compact_variant(text)
     variants = _build_variants(text, compact)
     stack.push_variants(variants)
 
-    best_idx = 0
-    for i, v in enumerate(variants):
-        if f"Lv.{lvl}" in v.label:
-            best_idx = i
-    if best_idx == 0 and len(variants) > 1:
-        best_idx = len(variants) - 1
-
+    # Auto-select compressed if available
+    best_idx = len(variants) - 1 if len(variants) > 1 else 0
     entry = stack.current_entry()
     if entry:
         entry.active_index = best_idx
 
     n = len(variants)
-    
+
     if tray:
         tray.update_menu()
 
@@ -464,7 +531,9 @@ def _handle_clipboard_change(text: str) -> str | None:
     if n > 1:
         show_toast(f"🔄 Auto-Crunch: {n} Variants")
 
-    minified, _ = minify_for_ai(text, level=lvl, xml_wrap=wrap, xml_tag=tag)
+    wrap = cfg.get("xml_wrap", False)
+    tag = cfg.get("xml_tag", "context")
+    minified, _ = minify_for_ai(text, xml_wrap=wrap, xml_tag=tag)
     return minified
 
 

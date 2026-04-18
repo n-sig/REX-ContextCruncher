@@ -13,14 +13,31 @@ and could cause tkinter crashes.
 from __future__ import annotations
 
 import ctypes
+import logging
 import threading
 import tkinter as tk
 from typing import Callable, TYPE_CHECKING
 
 from contextcruncher.feedback import get_tk_manager
+from contextcruncher.token_counter import count_tokens
 
 if TYPE_CHECKING:
     from contextcruncher.stack import Variant
+
+log = logging.getLogger(__name__)
+
+
+def _safe_token_count(text: str) -> int:
+    """Return count_tokens(text), falling back to 0 on any failure.
+
+    The picker must never crash because tiktoken blew up — this is pure
+    display metadata.
+    """
+    try:
+        return count_tokens(text or "")
+    except Exception:
+        log.debug("variant_picker: token count failed", exc_info=True)
+        return 0
 
 # -----------------------------------------------------------------------
 # Dark theme (consistent with settings.py)
@@ -86,7 +103,9 @@ def _create_picker(
         _picker_active = False
         try:
             root.destroy()
-        except:
+        except tk.TclError:
+            # Window was already destroyed (e.g. focus-out after Escape).
+            # Any other exception should bubble — swallowing hid real bugs.
             pass
 
     # ── Title bar ──
@@ -129,18 +148,28 @@ def _create_picker(
             update_selection()
         return handler
 
+    # Pre-compute token counts once so each row shows the exact value
+    # without re-encoding when the user hovers.
+    token_counts = [_safe_token_count(v.text) for v in variants]
+
     for i, variant in enumerate(variants):
         frame = tk.Frame(items_frame, padx=12, pady=8, cursor="hand2")
         frame.pack(fill=tk.X, pady=2)
 
         lbl = tk.Label(frame, anchor="w")
         lbl.pack(side=tk.LEFT)
-        
+
         savings_lbl = None
         if variant.saved_percent > 0:
             savings_text = f"-{variant.saved_percent:.0f}%"
             savings_lbl = tk.Label(frame, text=savings_text, anchor="e")
             savings_lbl.pack(side=tk.RIGHT, padx=(10, 0))
+
+        # Token count column (always shown, even for the Original variant)
+        tokens_lbl = tk.Label(
+            frame, text=f"{token_counts[i]:,} tok", anchor="e",
+        )
+        tokens_lbl.pack(side=tk.RIGHT, padx=(10, 0))
 
         preview = variant.text.replace("\n", " ").strip()
         if len(preview) > 60:
@@ -148,40 +177,47 @@ def _create_picker(
         preview_lbl = tk.Label(frame, text=preview, anchor="w")
         preview_lbl.pack(fill=tk.X, padx=(20, 0))
 
-        item_widgets.append((frame, lbl, preview_lbl, savings_lbl))
+        item_widgets.append((frame, lbl, preview_lbl, savings_lbl, tokens_lbl))
 
         # Mouse bindings
         click_handler = _make_select_handler(i)
-        for widget in (frame, lbl, preview_lbl) + ((savings_lbl,) if savings_lbl else ()):
+        extra = ((savings_lbl,) if savings_lbl else ()) + (tokens_lbl,)
+        for widget in (frame, lbl, preview_lbl) + extra:
             widget.bind("<Button-1>", click_handler)
             widget.bind("<Enter>", _make_hover_enter(i))
 
     def update_selection():
-        for i, (f, l, p, sl) in enumerate(item_widgets):
+        for i, (f, l, p, sl, tl) in enumerate(item_widgets):
             is_active = (i == state["sel"])
             bg = _BG_ACTIVE if is_active else _BG_ITEM
             f.config(bg=bg)
-            
+
             marker = "▸ " if is_active else "   "
             l.config(
-                bg=bg, 
+                bg=bg,
                 text=f"{marker}{variants[i].label}",
                 font=("Segoe UI", 11, "bold" if is_active else "normal"),
                 fg=_FG
             )
-            
+
             p.config(
-                bg=bg, 
+                bg=bg,
                 fg="#ffccdd" if is_active else _FG_DIM,
                 font=("Segoe UI", 9)
             )
-            
+
             if sl:
                 sl.config(
-                    bg=bg, 
+                    bg=bg,
                     fg=_FG if is_active else "#00ff88",
                     font=("Segoe UI", 10, "bold")
                 )
+
+            tl.config(
+                bg=bg,
+                fg=_FG if is_active else _FG_DIM,
+                font=("Segoe UI", 10),
+            )
 
     def on_up(e):
         if state["sel"] > 0:

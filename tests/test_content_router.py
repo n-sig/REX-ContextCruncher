@@ -71,6 +71,141 @@ class TestDetectContentType:
 
 
 # ---------------------------------------------------------------------------
+# agent_config detection (BUG-14 fix)
+# ---------------------------------------------------------------------------
+
+class TestDetectAgentConfig:
+    """BUG-14: CLAUDE.md, .cursorrules and system-prompt files must be
+    detected as agent_config so compress() can apply ULTRA-CONSERVATIVE mode.
+
+    Detection precedence (highest first):
+      1. Known agent-config filename
+      2. File extension
+      3. Heuristic: ≥5 constraint keywords in the first 5000 chars
+    """
+
+    # -- 1. filename-based detection --------------------------------------
+
+    def test_claude_md_filename(self):
+        assert detect_content_type("short text", filename="CLAUDE.md") == "agent_config"
+
+    def test_claude_md_lowercase_filename(self):
+        assert detect_content_type("short text", filename="claude.md") == "agent_config"
+
+    def test_agents_md_filename(self):
+        assert detect_content_type("hello", filename="AGENTS.md") == "agent_config"
+
+    def test_gemini_md_filename(self):
+        assert detect_content_type("hello", filename="GEMINI.md") == "agent_config"
+
+    def test_copilot_md_filename(self):
+        assert detect_content_type("hello", filename="COPILOT.md") == "agent_config"
+
+    def test_cursorrules_filename(self):
+        assert detect_content_type("rules", filename=".cursorrules") == "agent_config"
+
+    def test_cursorignore_filename(self):
+        assert detect_content_type("patterns", filename=".cursorignore") == "agent_config"
+
+    def test_system_prompt_filename(self):
+        assert detect_content_type("hi", filename="system_prompt.md") == "agent_config"
+        assert detect_content_type("hi", filename="system-prompt.txt") == "agent_config"
+
+    def test_path_with_subdir(self):
+        """Basenames must be extracted from full paths (both / and \\)."""
+        assert detect_content_type("x", filename="/repo/CLAUDE.md") == "agent_config"
+        assert detect_content_type("x", filename="C:\\proj\\CLAUDE.md") == "agent_config"
+
+    def test_agent_filename_wins_over_generic_extension(self):
+        """CLAUDE.md must stay agent_config even though .md would be markdown."""
+        assert detect_content_type("# Title\n", filename="CLAUDE.md") == "agent_config"
+
+    # -- 2. content heuristic ---------------------------------------------
+
+    def test_heuristic_triggers_with_5_constraint_keywords(self):
+        """5+ constraint keywords → agent_config regardless of filename."""
+        text = (
+            "Intro.\n"
+            "NEVER commit secrets.\n"
+            "ALWAYS verify inputs.\n"
+            "MUST NOT bypass auth.\n"
+            "DO NOT skip tests.\n"
+            "CRITICAL: run linter.\n"
+        )
+        assert detect_content_type(text) == "agent_config"
+
+    def test_heuristic_does_not_trigger_with_few_keywords(self):
+        """2-3 scattered keywords are normal prose, not agent_config."""
+        text = (
+            "Some prose about normal things.\n"
+            "We should always test our code.\n"
+            "It is important to write docs.\n"
+        )
+        # At most 2 keyword hits → stays as prose/markdown
+        assert detect_content_type(text) != "agent_config"
+
+    def test_heuristic_detects_german_keywords(self):
+        text = (
+            "NIEMALS Secrets committen.\n"
+            "IMMER Eingaben validieren.\n"
+            "DARF NICHT ohne Tests mergen.\n"
+            "VERBOTEN ist das Umgehen der Security.\n"
+            "CRITICAL: Code-Review vor Merge.\n"
+        )
+        assert detect_content_type(text) == "agent_config"
+
+    def test_heuristic_only_scans_first_5000_chars(self):
+        """Constraint keywords buried past 5000 chars must NOT trigger."""
+        padding = "Just some regular prose. " * 500  # ~12500 chars, no keywords
+        hidden_config = (
+            "\nNEVER x.\nALWAYS y.\nMUST NOT z.\nDO NOT w.\nFORBIDDEN q.\n"
+        )
+        text = padding + hidden_config
+        # Only the first 5000 chars are scanned → no match
+        assert detect_content_type(text) != "agent_config"
+
+    # -- 3. category mapping ---------------------------------------------
+
+    def test_agent_config_maps_to_agent_config_category(self):
+        assert _content_type_category("agent_config") == "agent_config"
+
+
+class TestSmartRouteAgentConfig:
+    """agent_config inputs must NOT be skeletonized — they must only go
+    through redact + compress so constraints survive."""
+
+    SAMPLE = (
+        "# Project Rules\n"
+        "NEVER create additional tk.Tk() instances.\n"
+        "ALWAYS redact secrets.\n"
+        "MUST NOT commit keys.\n"
+        "DO NOT skip tests.\n"
+        "CRITICAL: verify all hotkeys on startup.\n"
+    )
+
+    def test_claude_md_routed_to_agent_config(self):
+        r = smart_route(self.SAMPLE, filename="CLAUDE.md")
+        assert r.content_type == "agent_config"
+
+    def test_no_skeleton_step_for_agent_config(self):
+        """skeleton would destroy the constraint text — strategy must skip it."""
+        r = smart_route(self.SAMPLE, filename="CLAUDE.md", intent="understand")
+        # Strategy string joined by " → " — none of the techniques may be 'skeleton:*'
+        assert "skeleton:" not in r.strategy_used
+
+    def test_constraints_survive_compression(self):
+        r = smart_route(self.SAMPLE, filename="CLAUDE.md")
+        # The constraints themselves must survive deterministic compression
+        assert "NEVER" in r.compressed_text.upper()
+        assert "tk.Tk()" in r.compressed_text
+
+    def test_confidence_is_high_for_agent_config(self):
+        """Agent configs must remain 100% faithful → confidence ≥ 0.9."""
+        r = smart_route(self.SAMPLE, filename="CLAUDE.md")
+        assert r.confidence >= 0.9
+
+
+# ---------------------------------------------------------------------------
 # Category mapping
 # ---------------------------------------------------------------------------
 

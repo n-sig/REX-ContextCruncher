@@ -43,6 +43,7 @@ _CATEGORY_MAP: dict[str, str] = {
     "prose":        "prose",
     "email":        "prose",
     "web_scrape":   "prose",
+    "agent_config": "agent_config",
 }
 
 
@@ -63,30 +64,39 @@ class _Strategy:
 
 
 # (category, intent) → Strategy
+# Note: "compress" step runs minify_for_ai() which always uses full single-pass.
 _STRATEGY_MAP: dict[tuple[str, str], _Strategy] = {
     # CODE strategies
-    ("code", "understand"):    _Strategy(["redact", "skeleton", "level_1"], 0.93),
-    ("code", "code_review"):   _Strategy(["redact", "level_1"],            0.99),
-    ("code", "extract_data"):  _Strategy(["redact", "skeleton"],           0.90),
-    ("code", "summarize"):     _Strategy(["redact", "skeleton"],           0.88),
+    ("code", "understand"):    _Strategy(["redact", "skeleton", "compress"], 0.93),
+    ("code", "code_review"):   _Strategy(["redact", "compress"],             0.99),
+    ("code", "extract_data"):  _Strategy(["redact", "skeleton"],             0.90),
+    ("code", "summarize"):     _Strategy(["redact", "skeleton"],             0.88),
 
     # DATA strategies (JSON/XML/YAML)
-    ("data", "understand"):    _Strategy(["redact", "skeleton"],           0.95),
-    ("data", "code_review"):   _Strategy(["redact", "skeleton"],           0.95),
-    ("data", "extract_data"):  _Strategy(["redact", "skeleton"],           0.95),
-    ("data", "summarize"):     _Strategy(["redact", "skeleton"],           0.90),
+    ("data", "understand"):    _Strategy(["redact", "skeleton"],             0.95),
+    ("data", "code_review"):   _Strategy(["redact", "skeleton"],             0.95),
+    ("data", "extract_data"):  _Strategy(["redact", "skeleton"],             0.95),
+    ("data", "summarize"):     _Strategy(["redact", "skeleton"],             0.90),
 
     # LOG strategies
-    ("log", "understand"):     _Strategy(["redact", "level_2"],            0.85),
-    ("log", "code_review"):    _Strategy(["redact", "level_1"],            0.95),
-    ("log", "extract_data"):   _Strategy(["redact", "level_2"],            0.80),
-    ("log", "summarize"):      _Strategy(["redact", "level_3"],            0.70),
+    ("log", "understand"):     _Strategy(["redact", "compress"],             0.85),
+    ("log", "code_review"):    _Strategy(["redact", "compress"],             0.95),
+    ("log", "extract_data"):   _Strategy(["redact", "compress"],             0.80),
+    ("log", "summarize"):      _Strategy(["redact", "compress"],             0.70),
 
     # PROSE strategies (markdown, email, web scrape, generic)
-    ("prose", "understand"):   _Strategy(["redact", "level_2"],            0.85),
-    ("prose", "code_review"):  _Strategy(["redact", "level_1"],            0.95),
-    ("prose", "extract_data"): _Strategy(["redact", "level_3"],            0.75),
-    ("prose", "summarize"):    _Strategy(["redact", "level_3"],            0.70),
+    ("prose", "understand"):   _Strategy(["redact", "compress"],             0.85),
+    ("prose", "code_review"):  _Strategy(["redact", "compress"],             0.95),
+    ("prose", "extract_data"): _Strategy(["redact", "compress"],             0.75),
+    ("prose", "summarize"):    _Strategy(["redact", "compress"],             0.70),
+
+    # AGENT CONFIG strategies (CLAUDE.md, .cursorrules, system prompts)
+    # Conservative: only deterministic compression, NEVER skeleton (loses constraints).
+    # High confidence — these files must remain 100% faithful.
+    ("agent_config", "understand"):   _Strategy(["redact", "compress"],      0.98),
+    ("agent_config", "code_review"):  _Strategy(["redact", "compress"],      0.99),
+    ("agent_config", "extract_data"): _Strategy(["redact", "compress"],      0.95),
+    ("agent_config", "summarize"):    _Strategy(["redact", "compress"],      0.90),
 }
 
 
@@ -149,21 +159,56 @@ _EXT_MAP: dict[str, str] = {
 }
 
 
+# Known agent-config filenames (case-insensitive basenames)
+_AGENT_CONFIG_NAMES: frozenset[str] = frozenset({
+    "claude.md", "agents.md", "gemini.md", "copilot.md",
+    ".cursorrules", ".cursorignore",
+    ".github/copilot-instructions.md",
+    "system_prompt.md", "system_prompt.txt",
+    "system-prompt.md", "system-prompt.txt",
+})
+
+import re as _re
+
+# Heuristic: text with many constraint keywords is likely an agent config.
+# Kept in sync with prompt_optimizer._CONSTRAINT_RE so the same language
+# coverage exists on both sides of the pipeline (detect → extract).
+_AGENT_CONFIG_KEYWORDS_RE = _re.compile(
+    r'\b(?:NEVER|ALWAYS|MUST NOT|DO NOT|SHALL NOT|FORBIDDEN|CRITICAL|'
+    r'IMPORTANT.*?rule|Key Design Decision|design decision|'
+    r'VERBOTEN|NIEMALS|IMMER|MUSS|DARF NICHT)\b',
+    _re.IGNORECASE,
+)
+
+
 def detect_content_type(text: str, filename: str = "") -> str:
     """Detect the content type of *text*, optionally using *filename* as a hint.
 
-    Priority: filename extension (if recognized) > log/email/markdown heuristic
+    Priority: agent-config filename > filename extension (if recognized)
+    > agent-config content heuristic > log/email/markdown heuristic
     > JSON/XML structural check > prose fallback.
 
     The log/email/markdown heuristic runs BEFORE the structural JSON/XML check so
     that JSON-formatted log files (where each line is a JSON object starting with
     ``{``) are correctly classified as ``log`` rather than ``data_json``.
     """
+    # 0. Check for known agent-config filenames FIRST (highest priority)
+    if filename:
+        basename = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+        if basename in _AGENT_CONFIG_NAMES:
+            return "agent_config"
+
     # 1. Try filename extension first (most reliable)
     if filename and "." in filename:
         ext = "." + filename.rsplit(".", 1)[-1].lower()
         if ext in _EXT_MAP:
             return _EXT_MAP[ext]
+
+    # 1b. Heuristic: if text has many constraint keywords → agent_config
+    #     Threshold: ≥5 constraint keywords in the text signals an instruction file
+    constraint_hits = len(_AGENT_CONFIG_KEYWORDS_RE.findall(text[:5000]))
+    if constraint_hits >= 5:
+        return "agent_config"
 
     # 2. Run the text heuristic for log/email/markdown BEFORE the structural
     #    JSON/XML check.  A strong semantic signal (≥3 log-level lines) should
@@ -274,9 +319,8 @@ def smart_route(text: str, intent: str = "understand",
                     f"({saved / before_tokens * 100:.0f}% of structure)"
                 )
 
-        elif step.startswith("level_"):
-            level = int(step.split("_")[1])
-            result_text, stats = minify_for_ai(result_text, level=level)
+        elif step == "compress":
+            result_text, stats = minify_for_ai(result_text)
             techniques.extend(stats.get("techniques_applied", []))
             removed.extend(stats.get("what_was_removed", []))
 

@@ -22,7 +22,7 @@ from typing import Callable
 import tkinter as tk
 from PIL import ImageGrab
 
-from contextcruncher.feedback import get_tk_manager
+from contextcruncher.feedback import get_tk_manager, show_toast
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,10 @@ def select_region(callback: Callable[..., None]) -> None:
             win.destroy()
 
             if abs(x2 - x1) < 3 or abs(y2 - y1) < 3:
+                # A too-small rectangle (or a stray click without drag) would
+                # otherwise close the overlay silently and leave the user
+                # wondering whether the hotkey broke. Give explicit feedback.
+                show_toast("Selection too small — drag a larger region")
                 callback(None, None)
                 done.set()
                 return

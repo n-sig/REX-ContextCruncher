@@ -14,7 +14,7 @@ from tkinter import ttk
 import logging
 import threading
 
-from contextcruncher.feedback import get_tk_manager
+from contextcruncher.feedback import get_tk_manager, show_toast
 
 try:
     import tiktoken
@@ -32,10 +32,12 @@ logger = logging.getLogger(__name__)
 def show_heatmap(text: str) -> None:
     """Show the token heatmap in a background thread."""
     if not text:
+        show_toast("Heatmap: clipboard is empty")
         return
-        
+
     if not tiktoken:
         logger.error("tiktoken not installed. Cannot show heatmap.")
+        show_toast("Heatmap unavailable — tiktoken not installed")
         return
 
     get_tk_manager().schedule(_create_heatmap, text)

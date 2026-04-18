@@ -206,17 +206,22 @@ def test_dev_mode_path_with_spaces():
 
 def test_set_autostart_enabled_writes_registry():
     """set_autostart(True) must call winreg.SetValueEx with a non-empty value."""
-    import winreg as _wr
     from contextcruncher.config import set_autostart
 
-    _wr.OpenKey.reset_mock()
-    _wr.SetValueEx.reset_mock()
+    mock_open = mock.MagicMock(return_value=mock.MagicMock())
+    mock_set = mock.MagicMock()
+    mock_close = mock.MagicMock()
 
-    set_autostart(True)
+    with (
+        mock.patch("contextcruncher.config.winreg.OpenKey", mock_open),
+        mock.patch("contextcruncher.config.winreg.SetValueEx", mock_set),
+        mock.patch("contextcruncher.config.winreg.CloseKey", mock_close),
+    ):
+        set_autostart(True)
 
-    assert _wr.SetValueEx.called, "SetValueEx must be called when enabling autostart"
+    assert mock_set.called, "SetValueEx must be called when enabling autostart"
     # 4th positional arg is the registry value
-    call_args = _wr.SetValueEx.call_args
+    call_args = mock_set.call_args
     registry_value = call_args[0][4]  # (key, name, reserved, type, value)
     assert registry_value, "Registry value must not be empty"
     assert '"' in registry_value, "Registry value must contain quoted paths"
@@ -224,11 +229,17 @@ def test_set_autostart_enabled_writes_registry():
 
 def test_set_autostart_disabled_deletes_registry():
     """set_autostart(False) must call winreg.DeleteValue."""
-    import winreg as _wr
     from contextcruncher.config import set_autostart
 
-    _wr.DeleteValue.reset_mock()
+    mock_open = mock.MagicMock(return_value=mock.MagicMock())
+    mock_delete = mock.MagicMock()
+    mock_close = mock.MagicMock()
 
-    set_autostart(False)
+    with (
+        mock.patch("contextcruncher.config.winreg.OpenKey", mock_open),
+        mock.patch("contextcruncher.config.winreg.DeleteValue", mock_delete),
+        mock.patch("contextcruncher.config.winreg.CloseKey", mock_close),
+    ):
+        set_autostart(False)
 
-    assert _wr.DeleteValue.called, "DeleteValue must be called when disabling autostart"
+    assert mock_delete.called, "DeleteValue must be called when disabling autostart"

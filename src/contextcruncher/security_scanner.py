@@ -40,11 +40,13 @@ _DEFAULT_SECRETS_PATTERNS: dict[str, re.Pattern] = {
     ),
 
     # Stripe API keys  (live and test variants, 24+ chars after prefix)
-    "[STRIPE_KEY_REDACTED]": re.compile(r'\bsk_(?:live|test)_[a-zA-Z0-9]{24,}\b'),
+    # Supports both underscore (sk_live_xxx) and hyphen (sk-live-xxx) formats
+    "[STRIPE_KEY_REDACTED]": re.compile(r'\bsk[_-](?:live|test)[_-][a-zA-Z0-9]{20,}\b'),
 
     # OpenAI / Anthropic / other sk-* API keys
-    # Covers: sk-<48>, sk-proj-<43>, sk-ant-api03-<long>
-    "[AI_API_KEY_REDACTED]": re.compile(r'\bsk-(?:proj-|ant-[a-zA-Z0-9]+-)?[a-zA-Z0-9_\-]{32,}\b'),
+    # Covers: sk-<20+>, sk-proj-<43>, sk-ant-api03-<long>, sk-live-<hex>
+    # BUG-09 FIX: Lowered minimum from {32,} to {20,} to catch shorter keys
+    "[AI_API_KEY_REDACTED]": re.compile(r'\bsk-(?:proj-|ant-[a-zA-Z0-9]+-|live-|test-)?[a-zA-Z0-9_\-]{20,}\b'),
 
     # GitHub Personal Access Tokens  (classic ghp_ format)
     "[GH_TOKEN_REDACTED]": re.compile(r'\bghp_[a-zA-Z0-9]{36}\b'),

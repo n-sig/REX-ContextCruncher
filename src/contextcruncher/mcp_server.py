@@ -16,7 +16,7 @@ AI clients (e.g. Claude Desktop) can register it in their config:
       }
     }
 
-Exposed tools (22):
+Exposed tools (23):
   • ocr_scan_region      — Prompt user to select a screen region, return OCR text.
   • screenshot_full      — OCR the entire visible screen without user interaction.
   • read_clipboard       — Read the current system clipboard content.
@@ -37,6 +37,7 @@ Exposed tools (22):
   • diff_crunch          — Only return what changed since the last load.
   • context_pack         — Pack multiple files into one context block within a token budget.
   • optimize_prompt      — Rewrite text into a structured, role-optimized LLM prompt.
+  • ai_compress          — LLM-based semantic compression with hybrid structure preservation.
   • list_optimizer_profiles — List all available prompt optimizer profiles.
   • manage_optimizer_profile — Create or delete custom prompt optimizer profiles.
 """
@@ -74,6 +75,7 @@ from contextcruncher.skeletonizer import crunch_skeleton
 from contextcruncher.content_router import smart_route, detect_content_type, CrunchResult
 from contextcruncher.prompt_optimizer import (
     optimize as po_optimize,
+    compress as po_compress,
     list_profiles as po_list_profiles,
     get_profile as po_get_profile,
     save_profile as po_save_profile,
@@ -82,6 +84,7 @@ from contextcruncher.prompt_optimizer import (
     get_provider_config as po_get_provider_config,
     LLMProfile,
     OptimizeResult,
+    CompressResult,
 )
 from dataclasses import asdict
 
@@ -1094,6 +1097,72 @@ def optimize_prompt(
         "latency_ms": result.latency_ms,
         **(({"error": result.error}) if result.error else {}),
     }
+
+
+@mcp.tool()
+def ai_compress(
+    text: str,
+    aggressive: bool = False,
+    provider: str = "",
+    model: str = "",
+) -> dict:
+    """LLM-based semantic compression with hybrid structure preservation.
+
+    Sends the text to a configured LLM (Ollama / OpenAI / Anthropic) with
+    a compression-specific system prompt.  Unlike `crunch_text` — which is
+    deterministic and rule-based — `ai_compress` uses semantic understanding
+    to compress prose while preserving meaning.
+
+    HYBRID ARCHITECTURE: Before the LLM sees the text, ContextCruncher
+    extracts fenced/indented code blocks, markdown tables, inline backtick
+    refs, and constraint sentences (NEVER/ALWAYS/MUST NOT/DO NOT) into
+    placeholders.  After the LLM returns, originals are reinserted
+    verbatim — the LLM can only compress prose between structured blocks.
+
+    SECURITY: Secrets (API keys, tokens) are redacted via the
+    security_scanner BEFORE the text leaves the machine.  No exceptions.
+
+    Requires one of:
+      • Ollama running locally (`ollama serve`), OR
+      • OpenAI API key configured (Settings → AI Compression), OR
+      • Anthropic API key configured (Settings → AI Compression).
+
+    Args:
+        text: Text to compress.
+        aggressive: Use the more aggressive `compress_aggressive` profile
+            (default False — uses the standard `compress` profile).
+        provider: Override the configured provider ('openai', 'anthropic',
+            'ollama'). Empty = use the profile / config default.
+        model: Override the model name. Empty = use the profile / config default.
+
+    Returns:
+        Dict with compressed_text, token savings, latency, provider/model,
+        and any validation warnings from the hybrid extraction round-trip.
+    """
+    if not text or not text.strip():
+        return {"error": "Cannot compress empty text."}
+
+    result: CompressResult = po_compress(
+        text,
+        aggressive=aggressive,
+        provider_override=provider,
+        model_override=model,
+    )
+
+    response = {
+        "compressed_text": result.compressed_text,
+        "provider": result.provider,
+        "model": result.model,
+        "original_tokens": result.original_tokens,
+        "compressed_tokens": result.compressed_tokens,
+        "saved_percent": result.saved_percent,
+        "latency_ms": result.latency_ms,
+        "warnings": list(result.warnings),
+        "aggressive": aggressive,
+    }
+    if result.error:
+        response["error"] = result.error
+    return response
 
 
 @mcp.tool()

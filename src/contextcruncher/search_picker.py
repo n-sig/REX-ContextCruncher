@@ -16,7 +16,7 @@ import threading
 import tkinter as tk
 from typing import Callable, TYPE_CHECKING
 
-from contextcruncher.feedback import get_tk_manager
+from contextcruncher.feedback import get_tk_manager, show_toast
 
 if TYPE_CHECKING:
     from contextcruncher.stack import TextStack
@@ -51,7 +51,10 @@ def show_search_picker(
     global _picker_active
     if _picker_active:
         return
-    if stack.size() == 0:
+    if stack.size() == 0 and not stack.get_pinned_items():
+        # No history and no pinned items — tell the user instead of
+        # silently eating the hotkey.
+        show_toast("Clipboard stack is empty")
         return
     _picker_active = True
     get_tk_manager().schedule(

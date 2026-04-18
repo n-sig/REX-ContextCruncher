@@ -14,6 +14,7 @@ from typing import Callable
 from PIL import Image, ImageDraw
 import pystray
 
+from contextcruncher import __version__
 from contextcruncher.stack import TextStack
 from contextcruncher.config import hotkey_display_name
 
@@ -109,6 +110,12 @@ class TrayApp:
 
     def _build_menu(self) -> pystray.Menu:
         items: list[pystray.MenuItem | pystray.Menu] = []
+
+        # ── Version header (informational, disabled) ──
+        items.append(pystray.MenuItem(
+            f"ContextCruncher v{__version__}", lambda: None, enabled=False,
+        ))
+        items.append(pystray.Menu.SEPARATOR)
 
         # ── Primary action: Scan ──
         scan_key = self._hotkeys.get("scan", "")
@@ -302,7 +309,7 @@ class TrayApp:
         self._icon = pystray.Icon(
             name="ContextCruncher",
             icon=image,
-            title=f"ContextCruncher - {self._stack.size()} entries",
+            title=f"ContextCruncher v{__version__} - {self._stack.size()} entries",
             menu=self._build_menu(),
         )
         self._icon.run()
@@ -313,7 +320,7 @@ class TrayApp:
 
     def update_menu(self) -> None:
         if self._icon:
-            self._icon.title = f"ContextCruncher - {self._stack.size()} entries"
+            self._icon.title = f"ContextCruncher v{__version__} - {self._stack.size()} entries"
             self._icon.menu = self._build_menu()
             self._icon.update_menu()
 

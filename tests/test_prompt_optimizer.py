@@ -34,10 +34,13 @@ class TestBuiltinProfiles(unittest.TestCase):
 
     def test_builtin_profiles_exist(self):
         names = {p["name"] for p in po.list_profiles() if p.get("is_builtin")}
-        self.assertEqual(names, {"general", "code_reviewer", "data_analyst", "summarizer", "translator"})
+        self.assertEqual(names, {
+            "compress", "compress_aggressive",
+            "general", "code_reviewer", "data_analyst", "summarizer", "translator",
+        })
 
     def test_builtin_profiles_cannot_be_deleted(self):
-        for name in ("general", "code_reviewer", "data_analyst", "summarizer", "translator"):
+        for name in ("compress", "general", "code_reviewer", "data_analyst", "summarizer", "translator"):
             result = po.delete_profile(name)
             self.assertIn("error", result)
             self.assertIn("built-in", result["error"])

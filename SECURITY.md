@@ -13,7 +13,7 @@ ContextCruncher is designed for people who handle sensitive data — code under 
 | **Require admin privileges** | Runs entirely in user-space. No system-wide hooks, no driver installation. |
 | **Collect telemetry** | No analytics, no crash reporting to external services, no usage tracking. |
 | **Phone home** | No update checks, no license validation, no cloud dependencies. |
-| **Use cloud-based compression** | Unlike tools that send your text to an LLM API for compression, ContextCruncher compresses **locally with deterministic algorithms**. Your code never leaves your machine. |
+| **Use cloud-based compression by default** | ContextCruncher compresses **locally with deterministic algorithms** by default. The v2.0 `ai_compress` MCP tool is the single exception: an **opt-in** LLM call (OpenAI / Anthropic / Ollama) that is off by default and never invoked unless an agent explicitly calls it. See [Opt-In LLM Compression](#opt-in-llm-compression-v20) below. |
 
 ## What ContextCruncher DOES Do
 
@@ -34,6 +34,32 @@ ContextCruncher includes a two-pass security scanner that runs automatically dur
 - **False-positive guard:** Pure lowercase strings (e.g. regular prose) are never flagged regardless of entropy.
 
 Redacted values are replaced with labelled placeholders such as `[AWS_SECRET_REDACTED]` or `[HIGH_ENTROPY_SECRET_REDACTED]`.
+
+## Hybrid Neuro-Symbolic Compression (v2.0)
+
+The `ai_compress` MCP tool and the `prompt_optimizer` module share a **4-layer protective extraction** that runs *before* any text is sent to an LLM. This ensures high-signal elements survive the rewrite regardless of how aggressively the model compresses prose:
+
+| Layer | What is extracted | Why it matters |
+|---|---|---|
+| **1. Code blocks** | Fenced (```` ``` ````) and inline (`` ` ``) code regions | LLMs routinely break indentation, drop single-letter parameters, or "helpfully" reformat code. Extraction swaps them out to placeholders, so the original bytes are re-inserted verbatim after the LLM returns. |
+| **2. Tables** | Markdown tables (pipe-separated rows) | Tables carry structured data where column alignment and every cell matter. Row-order and content are preserved byte-for-byte. |
+| **3. File / URL references** | Paths (`src/foo.py`), URLs, CLI invocations | Breaks in paths or commands silently poison agent workflows. References are pinned and restored. |
+| **4. Constraint keywords** | `NEVER` / `ALWAYS` / `MUST NOT` / `DO NOT` (EN + DE: `IMMER` / `NIEMALS` / `MUSS` / `DARF NICHT` / `KEIN*`) | A CLAUDE.md loses its meaning if `NEVER use localStorage` becomes `avoid localStorage`. Constraint keyword density is preserved. |
+
+After extraction, only the remaining prose (typically 40–70% of the input) is sent to the configured LLM. The protected regions are stitched back in byte-exact. The `ai_compress` response includes a `warnings` field that flags any suspected round-trip loss (e.g. `Constraint 'NEVER' may be lost`, `Token count grew by 12%`).
+
+## Opt-In LLM Compression (v2.0)
+
+`ai_compress` is the **only** ContextCruncher feature that can make a network call, and it is strictly opt-in:
+
+- **Off by default** — no provider SDKs are imported at startup; `httpx` is lazy-loaded only when the tool is invoked.
+- **Explicit invocation** — only runs when an AI agent calls the `ai_compress` MCP tool. No automatic background use.
+- **Local-first provider** — Ollama (fully local) is supported; OpenAI / Anthropic require explicit API keys configured via `manage_optimizer_profile`.
+- **Secret scanner runs first** — the same two-pass redactor described above runs *before* the text leaves your machine. API keys and high-entropy tokens are replaced with placeholders.
+- **No persistent state** — the compressed text and provider response live in memory for the duration of the MCP call only. Nothing is written to disk.
+- **Validation warnings** — `_validate_compression` flags round-trip anomalies (token inflation, lost constraints, dropped code fences) so the agent can decide to reject the output.
+
+If you do not call `ai_compress`, ContextCruncher's network-free guarantees are unchanged. All other compression (`crunch_text`, `smart_crunch`, `budget_loader`, `context_pack`, etc.) remains 100% local and deterministic.
 
 ## Comparison: ContextCruncher vs Cloud-Based Compression
 
@@ -68,3 +94,5 @@ If you discover a security vulnerability, please report it responsibly:
 | `winrt-*` | Windows OCR engine binding | ✅ Microsoft first-party |
 | `mcp` | MCP protocol server | ✅ Stdio only, no network listener |
 | `tiktoken` | Token counting + cost estimation (optional) | ✅ OpenAI tokenizer, fully offline after first download |
+| `httpx` | **Opt-in** — only loaded when `ai_compress` / `optimize_prompt` is called | ⚠️ Network access when and only when user invokes LLM tools |
+| `tree-sitter` / `tree-sitter-javascript` | JS/TS function-body blanking in the skeletonizer (optional) | ✅ No network |
