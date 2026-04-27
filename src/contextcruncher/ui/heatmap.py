@@ -85,8 +85,8 @@ def _create_heatmap(text: str) -> None:
     top.configure(bg=_BG)
 
     # ── Top header row: Total Tokens / Chars / Efficiency ──
-    header_frame = tk.Frame(top, bg=_BG, padx=16, pady=(14, 4))
-    header_frame.pack(side="top", fill="x")
+    header_frame = tk.Frame(top, bg=_BG, padx=16)
+    header_frame.pack(side="top", fill="x", pady=(14, 4))
 
     stats_lbl = tk.Label(
         header_frame,
