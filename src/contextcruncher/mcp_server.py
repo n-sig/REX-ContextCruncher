@@ -106,24 +106,7 @@ _TEXT_EXTENSIONS = {
     ".swift", ".kt", ".cs", ".r", ".m", ".php", ".lua",
 }
 
-mcp = FastMCP(
-    "ContextCruncher",
-    description=(
-        "Your personal screen reading and clipboard intelligence assistant. "
-        "Use this tool whenever the user mentions anything on their screen, "
-        "asks about text they've copied, wants to read or OCR something visible, "
-        "or needs clipboard history. This tool can: "
-        "1) Screenshot and OCR any screen region on demand, "
-        "2) OCR the entire visible screen without user interaction, "
-        "3) Read and search clipboard history, "
-        "4) Compress text for token-efficient AI consumption (saves up to 45% tokens), "
-        "5) Push prepared text directly to the user's clipboard for pasting, "
-        "6) Crunch files and directories for token-efficient context loading, "
-        "7) Provide real token counts (tiktoken cl100k_base) for any text, "
-        "8) Intelligently route text through optimal compression pipelines (smart_crunch), "
-        "9) Preview compression strategies before applying them (explain_compression)."
-    ),
-)
+mcp = FastMCP("ContextCruncher")
 
 
 # -----------------------------------------------------------------------
