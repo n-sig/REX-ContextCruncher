@@ -1,6 +1,6 @@
 # 🛠️ ContextCruncher — Implementierungsplan
 
-**Basierend auf:** [Codebase Review](file:///C:/Users/LetsPlay/.gemini/antigravity/brain/419d2179-6888-4a19-bc67-201e355c858a/artifacts/codebase_review.md)  
+**Basierend auf:** [Codebase Review](#)  
 **Ziel:** Alle identifizierten Issues beheben, Note von B+ auf A- heben  
 **Regel:** Nach JEDEM Task → `python -m pytest tests/ -v` ausführen. Alle 444+ Tests müssen grün bleiben.
 
@@ -13,7 +13,7 @@
 **Problem:** `README.md` sagt v2.0.1, `__init__.py` sagt `2.0.0`, CHANGELOG endet bei 2.0.0.
 
 **Anweisung:**
-1. In [__init__.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/__init__.py) `__version__` auf `"2.0.1"` bumpen
+1. In [__init__.py](./src/contextcruncher/__init__.py) `__version__` auf `"2.0.1"` bumpen
 2. In `CHANGELOG.md` einen `## [2.0.1] - 2026-04-27` Block am Anfang hinzufügen mit Kategorie `### Fixed` und allen Fixes aus diesem Plan, die bereits erledigt sind
 3. Sicherstellen, dass README-Badge und `__init__` identisch sind
 
@@ -22,12 +22,12 @@
 ---
 
 ### Task 1.2: User-Guide komplett neu schreiben
-**Datei:** [docs/user-guide.md](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/docs/user-guide.md)  
+**Datei:** [docs/user-guide.md](./docs/user-guide.md)  
 **Problem:** Zeigt v0.2.0-beta, falsche Hotkeys (`Ctrl+Alt+S`, `Ctrl+Alt+F`, `Alt+H`), fehlende v2.0 Features.
 
 **Anweisung:**
 1. Version-Header auf `v2.0.1` ändern (Zeile 3)
-2. ALLE Hotkey-Referenzen durch die echten Defaults aus [config.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/config.py) ersetzen:
+2. ALLE Hotkey-Referenzen durch die echten Defaults aus [config.py](./src/contextcruncher/config.py) ersetzen:
    - `Ctrl+Alt+S` → `Ctrl+Shift+2` (Scan Region)
    - `Ctrl+Alt+F` → `Ctrl+Shift+1` (Full Screen OCR)
    - `Ctrl+Alt+C` → `Ctrl+Shift+A` (AI Compact)
@@ -56,7 +56,7 @@ Die Zeile die "No HTTP client" oder ähnliches behauptet, mit Fußnote versehen:
 ## Phase 2 — Memory & Robustheit (Kleine, sichere Code-Fixes)
 
 ### Task 2.1: DiffCache Size-Limit einbauen
-**Datei:** [diff_cache.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/diff_cache.py)  
+**Datei:** [diff_cache.py](./src/contextcruncher/diff_cache.py)  
 **Problem:** `_cache` dict wächst unbegrenzt → Memory Leak bei langen Sessions.
 
 **Anweisung:**
@@ -71,7 +71,7 @@ Die Zeile die "No HTTP client" oder ähnliches behauptet, mit Fußnote versehen:
 ---
 
 ### Task 2.2: MCP search_stack mit stack_size anreichern
-**Datei:** [mcp_server.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/mcp_server.py) Zeile 260-291  
+**Datei:** [mcp_server.py](./src/contextcruncher/mcp_server.py) Zeile 260-291  
 **Problem:** Leerer Stack vs. "nichts gefunden" nicht unterscheidbar für AI-Agents.
 
 **Anweisung:**  
@@ -89,7 +89,7 @@ return {
 ---
 
 ### Task 2.3: Auto-Crunch Toggle thread-safe machen
-**Datei:** [tray.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/tray.py) Zeile 321-325  
+**Datei:** [tray.py](./src/contextcruncher/tray.py) Zeile 321-325  
 **Problem:** `_auto_crunch_enabled` Toggle ohne Lock — potentielle Race Condition.
 
 **Anweisung:**
@@ -109,7 +109,7 @@ def _handle_toggle_auto_crunch(self, icon, item):
 ## Phase 3 — Security Scanner verbessern
 
 ### Task 3.1: IPv4-Pattern kontext-sensitiv machen
-**Datei:** [security_scanner.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/security_scanner.py) Zeile 70-71  
+**Datei:** [security_scanner.py](./src/contextcruncher/security_scanner.py) Zeile 70-71  
 **Problem:** `3.11.0.1` (Python-Version) wird als IP redaktiert.
 
 **Anweisung:**  
@@ -126,7 +126,7 @@ Den einfachen Regex durch eine Funktion ersetzen:
 ---
 
 ### Task 3.2: UUID-Redaktion kontext-sensitiv machen
-**Datei:** [security_scanner.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/security_scanner.py) Zeile 59-62  
+**Datei:** [security_scanner.py](./src/contextcruncher/security_scanner.py) Zeile 59-62  
 **Problem:** UUIDs in URLs und Konfigdateien werden zerstört.
 
 **Anweisung:**  
@@ -144,7 +144,7 @@ Analog zu Task 3.1:
 ## Phase 4 — Code-Qualität (Refactoring)
 
 ### Task 4.1: Provider-Credentials entduplizieren
-**Datei:** [prompt_optimizer.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/prompt_optimizer.py)  
+**Datei:** [prompt_optimizer.py](./src/contextcruncher/prompt_optimizer.py)  
 **Problem:** Identische Provider-Auflösung in `optimize()` (Z.800-845) und `compress()` (Z.988-1065).
 
 **Anweisung:**
@@ -171,7 +171,7 @@ def _resolve_credentials(provider: str, model: str) -> _ProviderCredentials:
 ---
 
 ### Task 4.2: Skeletonizer JS/TS Regex-Fallback verbessern
-**Datei:** [skeletonizer.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/skeletonizer.py)  
+**Datei:** [skeletonizer.py](./src/contextcruncher/skeletonizer.py)  
 **Problem:** Class method shorthands (`bar() {}`) und Getters/Setters werden nicht erkannt.
 
 **Anweisung:**  
@@ -186,7 +186,7 @@ Tests mit einem JS-Snippet das diese Patterns enthält schreiben.
 ---
 
 ### Task 4.3: _relevance_score für CamelCase verbessern
-**Datei:** [mcp_server.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/mcp_server.py) Zeile 916-931  
+**Datei:** [mcp_server.py](./src/contextcruncher/mcp_server.py) Zeile 916-931  
 **Problem:** `getStackSize` wird als ein Wort behandelt.
 
 **Anweisung:**
@@ -201,11 +201,11 @@ Tests mit einem JS-Snippet das diese Patterns enthält schreiben.
 ## Phase 5 — Tray Thread-Safety verifizieren
 
 ### Task 5.1: Settings-Handler Thread-Modell prüfen
-**Datei:** [tray.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/tray.py) Zeile 332-335  
+**Datei:** [tray.py](./src/contextcruncher/tray.py) Zeile 332-335  
 **Problem:** `_handle_settings` startet einen neuen Thread — falls dort Tk-UI erstellt wird, verstößt das gegen Design-Decision #1.
 
 **Anweisung:**
-1. In [main.py](file:///c:/Users/LetsPlay/Desktop/ContextCruncher/src/contextcruncher/main.py) prüfen was `_on_settings` tut
+1. In [main.py](./src/contextcruncher/main.py) prüfen was `_on_settings` tut
 2. Falls es `schedule()` oder `root.after()` nutzt → Thread-Wrapper ist redundant aber harmlos. Kommentar hinzufügen warum.
 3. Falls es direkt `Toplevel()` erstellt → **Critical Fix:** Thread-Wrapper durch `get_tk_manager().schedule()` ersetzen
 
