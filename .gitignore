@@ -91,6 +91,7 @@ docs/roadmap.md
 tests/QA-PROMPT.md
 tests/TEST-RUN.md
 tests/qa_runner.py
+master_qa_prompt.md
 
 # ============================================================
 #  Bug screenshots / scratch assets — local only

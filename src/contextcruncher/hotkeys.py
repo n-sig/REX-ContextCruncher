@@ -93,6 +93,7 @@ class HotkeyManager:
         on_ai_compact: HotkeyAction | None = None,
         on_heatmap: HotkeyAction | None = None,
         on_screenshot_full: HotkeyAction | None = None,   # FR-01
+        on_snipping: HotkeyAction | None = None,
         hotkey_bindings: dict[str, str] | None = None,
     ) -> None:
         self._on_scan = on_scan
@@ -102,6 +103,7 @@ class HotkeyManager:
         self._on_ai_compact = on_ai_compact
         self._on_heatmap = on_heatmap
         self._on_screenshot_full = on_screenshot_full      # FR-01
+        self._on_snipping = on_snipping
         self._bindings = hotkey_bindings or {}
         self._listener: keyboard.GlobalHotKeys | None = None
         self._mouse_listener: _MouseHotkeyListener | None = None  # FR-04
@@ -119,6 +121,7 @@ class HotkeyManager:
             "navigate_down": self._on_navigate_down,
             "search_stack": self._on_search_stack,
             "hotkey_heatmap": self._on_heatmap,
+            "snipping": self._on_snipping,
         }
 
         # FR-04: separate mouse bindings from keyboard bindings

@@ -12,7 +12,7 @@ Public API (unchanged for callers):
     flash_region(bbox)
     show_toast(text)
 
-New export used by overlay.py and settings.py:
+New export used by snipper.py and settings.py:
     get_tk_manager() -> _TkManager
 """
 

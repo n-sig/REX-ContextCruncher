@@ -115,6 +115,7 @@ class TrayApp:
         on_ai_compact: Callable[[], None] | None = None,
         on_search_stack: Callable[[], None] | None = None,
         on_toggle_auto_crunch: Callable[[bool], None] | None = None,
+        on_snipping: Callable[[], None] | None = None,
         hotkey_bindings: dict[str, str] | None = None,
     ) -> None:
         self._stack = stack
@@ -129,6 +130,7 @@ class TrayApp:
         self._on_ai_compact = on_ai_compact
         self._on_search_stack = on_search_stack
         self._on_toggle_auto_crunch = on_toggle_auto_crunch
+        self._on_snipping = on_snipping
         self._hotkeys = hotkey_bindings or {}
         self._icon: pystray.Icon | None = None
         
@@ -153,10 +155,16 @@ class TrayApp:
 
         # ── Primary action: Scan ──
         scan_key = self._hotkeys.get("scan", "")
-        scan_label = f"📸  Scan Region"
+        scan_label = f"🖨️  OCR Snipping"
         if scan_key:
             scan_label += f"    {hotkey_display_name(scan_key)}"
         items.append(pystray.MenuItem(scan_label, self._handle_scan, default=True))
+
+        snip_key = self._hotkeys.get("snipping", "")
+        snip_label = f"📸  Image Snipping"
+        if snip_key:
+            snip_label += f"    {hotkey_display_name(snip_key)}"
+        items.append(pystray.MenuItem(snip_label, self._handle_snipping))
 
         ai_key = self._hotkeys.get("ai_compact", "")
         ai_label = f"🤖  AI-Crunch Clipboard"
@@ -310,6 +318,10 @@ class TrayApp:
     def _handle_scan(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if self._on_scan:
             self._on_scan()
+
+    def _handle_snipping(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if self._on_snipping:
+            self._on_snipping()
 
     def _handle_ai_compact(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if self._on_ai_compact:

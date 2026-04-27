@@ -30,3 +30,27 @@ def paste() -> None:
     _keyboard.press("v")
     _keyboard.release("v")
     _keyboard.release(Key.ctrl)
+
+
+def set_clipboard_image(image) -> None:
+    """Copy a PIL Image to the Windows clipboard."""
+    import win32clipboard
+    import io
+    output = io.BytesIO()
+    image.convert("RGB").save(output, "BMP")
+    data = output.getvalue()[14:]  # BMP file header is 14 bytes
+    output.close()
+    
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+    win32clipboard.CloseClipboard()
+
+
+def save_image_to_desktop(image) -> str:
+    """Save a PIL Image as JPG to the user's Desktop and return the path."""
+    import os
+    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    filename = os.path.join(desktop, f"Snip_{int(time.time())}.jpg")
+    image.convert("RGB").save(filename, "JPEG", quality=95)
+    return filename

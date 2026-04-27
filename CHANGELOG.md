@@ -7,7 +7,19 @@ Dates are ISO 8601.
 ## [2.0.1] — 2026-04-27
 
 Maintenance release — documentation accuracy, memory safety, security
-scanner improvements, and code-quality refactors. No breaking changes.
+scanner improvements, image snipping, and code-quality refactors. No breaking changes.
+
+### Added
+
+- **Image Snipping** (`Ctrl+Shift+S`) — Greenshot-style screenshot tool
+  captures any screen region as JPG on the Desktop and copies the image
+  to the clipboard (DIB format) for direct pasting. *(New feature)*
+- **OOP SnippingTool** (`ui/snipper.py`) — Replaced legacy `overlay.py`
+  with a clean, object-oriented implementation. Uses `threading.Event()`
+  for synchronous blocking, enabling both GUI and MCP server usage.
+- **DIB clipboard support** (`clipboard.py`) — `copy_image_to_clipboard()`
+  writes PIL images to the Windows clipboard in Device-Independent Bitmap
+  format via `ctypes`/`win32clipboard`.
 
 ### Fixed
 
@@ -71,7 +83,7 @@ scanner improvements, and code-quality refactors. No breaking changes.
 - Added 7 `_tokenize` tests (CamelCase, PascalCase, snake_case, dot-path,
   acronym splitting, single-char filtering, mixed compound) and 2
   `_relevance_score` CamelCase/snake_case matching tests.
-- **Total: 504 passed · 7 skipped · 0 failed** (excl. env-dependent OCR).
+- **Total: 507 passed · 7 skipped · 0 failed** (excl. env-dependent OCR).
 
 ## [2.0.0] — 2026-04-19
 

@@ -91,6 +91,29 @@ Scannt einen selbst gewählten Bildschirmbereich mit der Windows OCR-Engine.
 
 ---
 
+## 2.5 Image Snipping (`Strg+Shift+S`)
+
+Erstellt einen Bildschirmausschnitt als **JPG-Datei auf dem Desktop** und kopiert das Bild in die Zwischenablage. Ideal für schnelle Screenshots ohne Umweg über die Windows-Snipping-App.
+
+### So funktioniert es
+
+1. **`Strg+Shift+S` drücken** → Bildschirm wird leicht abgedunkelt, Fadenkreuz-Cursor
+2. **Bereich aufziehen** → Rotes Rechteck zeigt die Auswahl
+3. **Loslassen** → Screenshot wird als `Snip_<timestamp>.jpg` auf dem Desktop gespeichert
+4. Das Bild wird gleichzeitig in die **Zwischenablage** kopiert (DIB-Format) — direkt in Apps einfügbar per `Strg+V`
+5. Toast-Benachrichtigung zeigt den Dateinamen: `📸 Image Saved — Desktop\Snip_1234567890.jpg`
+
+### Unterschied zu OCR Snipping
+
+| | OCR Snipping (`Strg+Shift+2`) | Image Snipping (`Strg+Shift+S`) |
+|---|---|---|
+| **Ergebnis** | Text (OCR-erkannt) | JPG-Bild |
+| **Clipboard** | Text | Bild (DIB) |
+| **Datei gespeichert** | Nein | Ja (Desktop) |
+| **Kompression** | Ja (Varianten) | Nein |
+
+---
+
 ## 3. OCR — Vollbild scannen (`Strg+Shift+1`)
 
 Scannt **den gesamten Bildschirminhalt** ohne Bereichsauswahl.
@@ -472,6 +495,7 @@ gesetzt — nur für den aktuellen Benutzer, kein Admin nötig.
 | **Älter blättern ↓** | `Strg+Shift+PageDown` | ✅ |
 | **Stack durchsuchen** | `Strg+Shift+Space` | ✅ |
 | **Token Heatmap** | `Strg+Shift+H` | ✅ |
+| **Image Snipping** | `Strg+Shift+S` | ✅ |
 | **Maus X1 / X2** | *(nicht belegt)* | ✅ |
 
 > **Warum `Strg+Shift+…` und nicht `Strg+Alt+…` oder `Alt+…`?** Die alten Defaults scheiterten an drei häufigen Setups: `Alt+Buchstabe` kapert die Office/Explorer-Menüleiste, `Strg+Alt+Buchstabe` ist physisch identisch mit `AltGr` auf deutschen/europäischen Tastaturen (→ `€`, `@`, `{` verlieren das Rennen gegen den globalen Hook), und `Strg+Shift+Pfeil` kollidiert mit Wort-Markierung in jedem Texteditor.

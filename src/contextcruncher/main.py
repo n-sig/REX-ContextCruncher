@@ -116,22 +116,22 @@ if not is_ocr_available():
 # Imports
 # -----------------------------------------------------------------------
 from contextcruncher.stack import TextStack, Variant
-from contextcruncher.overlay import select_region
 from contextcruncher.ocr import recognise
-from contextcruncher.clipboard import set_clipboard
+from contextcruncher.clipboard import set_clipboard, set_clipboard_image, save_image_to_desktop
 from contextcruncher.feedback import beep_success, beep_empty, flash_region, show_toast
 from contextcruncher.hotkeys import HotkeyManager
 from contextcruncher.tray import TrayApp
 from contextcruncher.normalize import compact_variant
-from contextcruncher.config import get_hotkeys, hotkey_display_name, load_config
+from contextcruncher.config import get_hotkeys, load_config
 from contextcruncher.text_processor import minify_for_ai
-from contextcruncher.content_router import smart_route, detect_content_type
+from contextcruncher.content_router import smart_route
 from contextcruncher.token_counter import count_tokens, context_window_warning  # FR-03
 from contextcruncher.clipboard_monitor import ClipboardMonitor
 from contextcruncher.variant_picker import show_variant_picker
 from contextcruncher.search_picker import show_search_picker
 from contextcruncher.ui.heatmap import show_heatmap
 from contextcruncher.prompt_optimizer import compress as ai_compress, is_ai_compress_configured
+from contextcruncher.ui.snipper import SnippingTool
 
 import pyperclip
 from contextcruncher.settings import open_settings
@@ -186,7 +186,7 @@ def _build_variants(text: str, compact_text: str | None = None) -> list[Variant]
 # -----------------------------------------------------------------------
 
 def _on_scan() -> None:
-    """Open overlay, OCR the selected area, push to stack."""
+    """Open the snipping tool overlay, OCR the selected area, push to stack."""
 
     # Bug #3 — reject if a scan is already in progress
     if _scan_active.is_set():
@@ -226,13 +226,52 @@ def _on_scan() -> None:
                 if tray:
                     tray.update_menu()
 
-            select_region(_handle_selection)
+            tool = SnippingTool(callback=_handle_selection)
+            tool.start()
         except Exception:
             log.exception("_on_scan: unhandled error")
         finally:
             _scan_active.clear()
 
     threading.Thread(target=_do_scan, daemon=True).start()
+
+
+def _on_snipping() -> None:
+    """Open the snipping tool overlay, save the area as JPG to desktop and clipboard."""
+
+    if _scan_active.is_set():
+        log.debug("_on_snipping: scan already active, ignoring")
+        return
+
+    def _do_snip() -> None:
+        _scan_active.set()
+        try:
+            def _handle_selection(image, bbox) -> None:
+                if image is None:
+                    return
+
+                try:
+                    filename = save_image_to_desktop(image)
+                    set_clipboard_image(image)
+                    beep_success()
+                    flash_region(bbox)
+                    
+                    short_name = os.path.basename(filename)
+                    show_toast(f"📸 Image Saved\nDesktop\\{short_name}")
+                    log.info(f"Image snipped and saved to {filename}")
+                except Exception as e:
+                    beep_empty()
+                    show_toast("⚠ Failed to save image")
+                    log.error(f"Image snip failed: {e}")
+
+            tool = SnippingTool(callback=_handle_selection)
+            tool.start()
+        except Exception:
+            log.exception("_on_snipping: unhandled error")
+        finally:
+            _scan_active.clear()
+
+    threading.Thread(target=_do_snip, daemon=True).start()
 
 
 def _on_navigate_up() -> None:
@@ -623,6 +662,7 @@ def _on_settings() -> None:
             on_ai_compact=_on_ai_compact_from_clipboard,
             on_heatmap=_on_show_heatmap,
             on_screenshot_full=_on_screenshot_full,
+            on_snipping=_on_snipping,
             hotkey_bindings=hotkey_bindings,
         )
         hotkey_mgr.start()
@@ -661,6 +701,7 @@ def main() -> None:
         on_ai_compact=_on_ai_compact_from_clipboard,
         on_heatmap=_on_show_heatmap,
         on_screenshot_full=_on_screenshot_full,
+        on_snipping=_on_snipping,
         hotkey_bindings=hotkey_bindings,
     )
     hotkey_mgr.start()
@@ -686,6 +727,7 @@ def main() -> None:
         on_ai_compact=_on_ai_compact_from_clipboard,
         on_search_stack=_on_search_stack,
         on_toggle_auto_crunch=_on_toggle_auto_crunch,
+        on_snipping=_on_snipping,
         hotkey_bindings=hotkey_bindings,
     )
     tray.start()  # Blocking — runs pystray's message loop

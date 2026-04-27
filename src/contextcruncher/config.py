@@ -57,6 +57,7 @@ DEFAULT_HOTKEYS: dict[str, str] = {
     "navigate_down":   "<ctrl>+<shift>+<page_down>",
     "search_stack":    "<ctrl>+<shift>+<space>",    # thumb-friendly
     "hotkey_heatmap":  "<ctrl>+<shift>+h",          # H = Heatmap
+    "snipping":        "<ctrl>+<shift>+s",          # Snipping Tool
 }
 
 _DEFAULT_CONFIG: dict[str, Any] = {
@@ -185,6 +186,7 @@ HOTKEY_ACTION_LABELS: dict[str, str] = {
     "navigate_down": "Older ↓",
     "search_stack": "Search Stack 🔎",
     "hotkey_heatmap": "Token Heatmap",
+    "snipping": "Snipping Tool",
 }
 
 

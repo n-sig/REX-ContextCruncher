@@ -13,6 +13,7 @@
 ## ✨ Features
 
 - **Instant OCR** — Select any area or capture the full screen; text recognized in <1s via native Windows OCR (offline)
+- **Image Snipping** — Greenshot-style screenshot tool: capture any region as JPG on Desktop + DIB clipboard copy
 - **AI Token Compression** — Content-type-aware pipeline saves 25–45% tokens for LLMs while preserving code 1:1
 - **Clipboard Stack** — History of up to 50 entries with multi-variant compression, pin up to 10 entries across restarts
 - **Search Overlay** — Interactive search through stack history and pinned elements
@@ -58,6 +59,7 @@ python src/contextcruncher/main.py
 | `Ctrl+Shift+PageUp/Down` | Navigate stack entries |
 | `Ctrl+Shift+Space` | Search Overlay |
 | `Ctrl+Shift+H` | Token Heatmap |
+| `Ctrl+Shift+S` | Image Snipping (save + clipboard) |
 
 All hotkeys fully customizable in Settings. Mouse side buttons supported.
 
@@ -139,7 +141,7 @@ Or manually add to your AI client config:
 ```bash
 pip install -r requirements.txt          # Install dependencies
 python src/contextcruncher/main.py       # Run
-python -m pytest tests/ -v              # Run tests (504 passed)
+python -m pytest tests/ -v              # Run tests (507 passed)
 python evals/run_eval.py                # Compression benchmarks
 pyinstaller build.spec                  # Build .exe → dist/ContextCruncher.exe
 ```

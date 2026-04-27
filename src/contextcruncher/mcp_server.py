@@ -45,6 +45,7 @@ Exposed tools (23):
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -64,7 +65,7 @@ except ImportError:
 
 from contextcruncher.stack import TextStack
 from contextcruncher.ocr import recognise, is_ocr_available
-from contextcruncher.overlay import select_region
+from contextcruncher.ui.snipper import SnippingTool
 from contextcruncher.clipboard import set_clipboard
 from contextcruncher.normalize import compact_variant
 from contextcruncher.text_processor import minify_for_ai
@@ -72,18 +73,16 @@ from contextcruncher.token_counter import count_tokens, token_stats, cost_estima
 from contextcruncher.diff_cache import DiffCache
 from contextcruncher.security_scanner import redact_secrets
 from contextcruncher.skeletonizer import crunch_skeleton
-from contextcruncher.content_router import smart_route, detect_content_type, CrunchResult
+from contextcruncher.content_router import smart_route, detect_content_type
 from contextcruncher.prompt_optimizer import (
     optimize as po_optimize,
     compress as po_compress,
     list_profiles as po_list_profiles,
-    get_profile as po_get_profile,
     save_profile as po_save_profile,
     delete_profile as po_delete_profile,
     save_provider_config as po_save_provider_config,
     get_provider_config as po_get_provider_config,
     LLMProfile,
-    OptimizeResult,
     CompressResult,
 )
 from dataclasses import asdict
@@ -146,10 +145,9 @@ def ocr_scan_region() -> str:
             result["text"] = text
         done.set()
 
-    # The overlay runs in its own thread (requires tkinter mainloop).
-    t = threading.Thread(target=select_region, args=(_callback,), daemon=True)
-    t.start()
-    done.wait(timeout=30)
+    # The SnippingTool handles TkManager scheduling and blocks until done.
+    tool = SnippingTool(_callback)
+    tool.start()
 
     if result["text"]:
         return result["text"]
