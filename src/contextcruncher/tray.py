@@ -1,5 +1,5 @@
 """
-System tray icon and context menu — Greenshot-inspired.
+System tray icon and context menu.
 
 Shows scan action with hotkey hint, recent history entries (clickable),
 compact submenus for number entries, settings shortcut, and exit.
@@ -99,7 +99,7 @@ def _truncate(text: str, max_len: int = 45) -> str:
 
 
 class TrayApp:
-    """System-tray wrapper around pystray — Greenshot-style."""
+    """System-tray wrapper around pystray."""
 
     def __init__(
         self,

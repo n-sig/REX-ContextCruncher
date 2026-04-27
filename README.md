@@ -13,7 +13,7 @@
 ## ✨ Features
 
 - **Instant OCR** — Select any area or capture the full screen; text recognized in <1s via native Windows OCR (offline)
-- **Image Snipping** — Advanced, Greenshot-style object-oriented snipping tool. Capture any screen region as a high-quality JPG directly to your Desktop while simultaneously pushing a DIB (Device Independent Bitmap) copy to your clipboard for instant pasting.
+- **Image Snipping** — Advanced, object-oriented snipping tool. Capture any screen region as a high-quality JPG directly to your Desktop while simultaneously pushing a DIB (Device Independent Bitmap) copy to your clipboard for instant pasting.
 - **AI Token Compression** — Content-type-aware pipeline saves 25–45% tokens for LLMs while preserving code 1:1
 - **Clipboard Stack** — History of up to 50 entries with multi-variant compression, pin up to 10 entries across restarts
 - **Search Overlay** — Interactive search through stack history and pinned elements

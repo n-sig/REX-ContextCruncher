@@ -11,7 +11,7 @@ scanner improvements, image snipping, and code-quality refactors. No breaking ch
 
 ### Added
 
-- **Image Snipping** (`Ctrl+Shift+S`) — Greenshot-style screenshot tool
+- **Image Snipping** (`Ctrl+Shift+S`) — Native screenshot tool
   captures any screen region as JPG on the Desktop and copies the image
   to the clipboard (DIB format) for direct pasting. *(New feature)*
 - **OOP SnippingTool** (`ui/snipper.py`) — Replaced legacy `overlay.py`

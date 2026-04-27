@@ -1,5 +1,5 @@
 """
-snipper.py — Object-oriented Greenshot-style transparent full-screen snipping tool.
+snipper.py — Object-oriented transparent full-screen snipping tool.
 
 Creates an overlay across all monitors, lets the user draw a rectangle,
 and captures the selected region using PIL.ImageGrab.
