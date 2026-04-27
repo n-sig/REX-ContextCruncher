@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from typing import Callable
 
 from PIL import Image, ImageDraw
@@ -20,6 +21,38 @@ from contextcruncher.config import hotkey_display_name
 
 _ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
 _MAX_HISTORY_ITEMS = 8  # Show at most this many items in the tray menu.
+
+
+def _freshness_bar(index: int) -> str:
+    """Return a Unicode density char that encodes the entry's age by position.
+
+    pystray cannot render per-item background colors (no owner-draw support),
+    so we simulate the "newest = bright, oldest = faded" gradient with a
+    monochrome block character. Index 0 is newest (solid █), position >6
+    is deepest gray (░). This gives the user a peripheral visual cue at a
+    glance without relying on item numbers.
+    """
+    if index <= 1:
+        return "█"   # full — newest 2
+    if index <= 3:
+        return "▓"   # dark shade
+    if index <= 6:
+        return "▒"   # medium shade
+    return "░"       # light shade — oldest
+
+
+def _relative_time(ts: float) -> str:
+    """Format a Unix timestamp as a short relative age hint ('now', '5s', '2m', '1h', '3d')."""
+    delta = time.time() - ts
+    if delta < 10:
+        return "now"
+    if delta < 60:
+        return f"{int(delta)}s"
+    if delta < 3600:
+        return f"{int(delta / 60)}m"
+    if delta < 86400:
+        return f"{int(delta / 3600)}h"
+    return f"{int(delta / 86400)}d"
 
 
 def _generate_icon(size: int = 64) -> Image.Image:
@@ -180,14 +213,14 @@ class TrayApp:
                         unpin_item
                     )
                     marker = " ✎" if entry.compact else ""
-                    items.append(pystray.MenuItem(f"   [{i + 1}] {preview}{marker}", sub))
+                    items.append(pystray.MenuItem(f"📌  {preview}{marker}", sub))
                 else:
                     sub = pystray.Menu(
                         pystray.MenuItem(f"📄  Original: {preview}", make_entry_cb_pinned(i)),
                         pystray.Menu.SEPARATOR,
                         unpin_item
                     )
-                    items.append(pystray.MenuItem(f"   [{i + 1}] {preview}", sub))
+                    items.append(pystray.MenuItem(f"📌  {preview}", sub))
             items.append(pystray.Menu.SEPARATOR)
 
         # ── History entries ──
@@ -207,9 +240,14 @@ class TrayApp:
                 return lambda icon, item: self._on_select_compact(j)
 
             # Show the most recent entries.
+            # Layout: "<bar>  <preview>  · <age>" — no numbering.
+            # The freshness bar encodes position-age visually (█ newest → ░ oldest),
+            # and the relative time stamp ("now", "2m", "1h") makes it explicit.
             for i in range(min(size, _MAX_HISTORY_ITEMS)):
                 entry = self._stack.get_entry(i)
-                preview = _truncate(entry.original)
+                preview = _truncate(entry.original, max_len=38)
+                bar = _freshness_bar(i)
+                reltime = _relative_time(entry.created_at)
 
                 if entry.compact is not None:
                     # Entry has compact variant → submenu.
@@ -224,15 +262,15 @@ class TrayApp:
                             make_compact_cb(i),
                         ),
                     )
-                    marker = " ✎" if entry.compact else ""
+                    marker = " ✎"
                     items.append(pystray.MenuItem(
-                        f"   {i + 1}. {preview}{marker}",
+                        f"{bar}  {preview}{marker}  · {reltime}",
                         sub,
                     ))
                 else:
                     # Regular entry → click to copy.
                     items.append(pystray.MenuItem(
-                        f"   {i + 1}. {preview}",
+                        f"{bar}  {preview}  · {reltime}",
                         make_entry_cb(i),
                     ))
 

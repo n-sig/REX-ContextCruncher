@@ -1,78 +1,123 @@
-# Python
+# ============================================================
+#  Python
+# ============================================================
 __pycache__/
-.pytest_cache/
 *.py[cod]
 *$py.class
 *.so
 *.egg-info/
 *.egg
-dist/
-build/
-*.spec.bak
 
-# Virtual environments
+# ============================================================
+#  Virtual environments
+# ============================================================
 venv/
 .venv/
 env/
 ENV/
 
-# PyInstaller
+# ============================================================
+#  PyInstaller / Build artifacts
+# ============================================================
+build/
+dist/
 *.manifest
 *.exe
+*.exe.old*
+*.spec.bak
 
-# IDE
+# ============================================================
+#  Test / Lint caches
+# ============================================================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ============================================================
+#  IDE / Editor
+# ============================================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# ============================================================
+#  Operating System
+# ============================================================
 Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Distribution
+# ============================================================
+#  Distribution archives
+# ============================================================
 *.tar.gz
 *.whl
 
-# AI agent / internal development files
+# ============================================================
+#  AI agent / internal development files
+# ============================================================
 CLAUDE.md
 AGENTS.md
 GEMINI.md
 DEV-TRACKER.md
+AGENT-HANDOFF-PROMPT.md
 Berichte/
 evals/results/
 
-# Internal docs — not for public GitHub
+# ============================================================
+#  Internal docs — NOT for public GitHub
+# ============================================================
 docs/audit-report.md
 docs/bugs/
 docs/compression-analysis.md
 docs/context-engineering-vision.md
+docs/roadmap.md
 
-# Internal QA automation (AI agent tooling)
+# (docs/ itself is PUBLIC — only the files above are private.)
+
+# ============================================================
+#  Internal QA automation (AI agent tooling)
+# ============================================================
 tests/QA-PROMPT.md
 tests/TEST-RUN.md
 tests/qa_runner.py
 
-# docs/ ist ÖFFENTLICH — nicht ignorieren
-# (kein Eintrag für docs/ hier)
+# ============================================================
+#  Bug screenshots / scratch assets — local only
+# ============================================================
+BugBilder/
+Bilder/
+screenshots/
+# Generic catch-all for loose PNG/JPG at repo root (debug screenshots)
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+# BUT keep the tracked hero image and the app icon:
+!assets/CC.png
+!src/contextcruncher/assets/icon.png
 
-# Legacy — alte Namen, falls noch vorhanden
-Bug Report - VERIFIED.md
-
-# Umgebungs-Variablen / Secrets
+# ============================================================
+#  Environment variables / Secrets
+# ============================================================
 .env
 .env.*
+*.key
+*.pem
+secrets.json
 
-# Logs
+# ============================================================
+#  Logs
+# ============================================================
 *.log
 logs/
 
-# Typisierung & Linter Caches
-.mypy_cache/
-.ruff_cache/
-
-# Test Coverage Reports
-.coverage
-htmlcov/
+# ============================================================
+#  Legacy / historical names
+# ============================================================
+Bug Report - VERIFIED.md
+"GUI Bugs"

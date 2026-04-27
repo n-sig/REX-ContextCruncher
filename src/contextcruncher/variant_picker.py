@@ -21,6 +21,12 @@ from typing import Callable, TYPE_CHECKING
 from contextcruncher.feedback import get_tk_manager
 from contextcruncher.token_counter import count_tokens
 
+try:
+    from pynput import keyboard as _pyk
+    _pynput_available = True
+except Exception:  # pragma: no cover — defensive, pynput is a hard dep
+    _pynput_available = False
+
 if TYPE_CHECKING:
     from contextcruncher.stack import Variant
 
@@ -40,18 +46,25 @@ def _safe_token_count(text: str) -> int:
         return 0
 
 # -----------------------------------------------------------------------
-# Dark theme (consistent with settings.py)
+# Dark theme — synchronized with settings.py, search_picker.py and the
+# tray menu so the variant picker doesn't look like a separate application.
+# Previous palette (#1a1a2e / #e94560 / #16213e) was a blue/magenta variant
+# that didn't match the rest of the ContextCruncher UI — same fix that
+# was applied to search_picker.py in v2.0.1.
 # -----------------------------------------------------------------------
-_BG = "#1a1a2e"
-_BG_ITEM = "#16213e"
-_BG_HOVER = "#0f3460"
-_BG_ACTIVE = "#e94560"
+_BG = "#121212"          # matches settings.py _BG
+_BG_ITEM = "#1e1e1e"     # matches settings.py _BG_FIELD
+_BG_HOVER = "#2d2d2d"    # matches settings.py _BG_ACTIVE
+_BG_ACTIVE = "#D9060D"   # app accent red (was magenta #e94560)
 _FG = "#ffffff"
-_FG_DIM = "#8899aa"
-_ACCENT = "#e94560"
+_FG_DIM = "#888888"      # matches settings.py _FG_DIM
+_ACCENT = "#D9060D"      # app accent red
 
 
 _picker_active = False
+# Module-level holder for the pynput global ESC listener so we can stop it
+# on close (avoids leaking listener threads and double-bindings on reopen).
+_esc_listener: object = None
 
 def show_variant_picker(
     variants: list["Variant"],
@@ -99,8 +112,16 @@ def _create_picker(
         if _is_closed:
             return
         _is_closed = True
-        global _picker_active
+        global _picker_active, _esc_listener
         _picker_active = False
+        # Stop the global ESC listener (started further below) so it doesn't
+        # leak its thread or fire again after the picker is gone.
+        if _esc_listener is not None:
+            try:
+                _esc_listener.stop()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            _esc_listener = None
         try:
             root.destroy()
         except tk.TclError:
@@ -118,6 +139,25 @@ def _create_picker(
         fg=_ACCENT,
         bg=_BG,
     ).pack(side=tk.LEFT)
+
+    # Explicit ✕ close button — previously the only way out was ESC, but
+    # ESC was unreliable when the picker hadn't captured focus (see
+    # _esc_listener + focus-stealing block below). A clickable button is
+    # always available regardless of focus state. Same pattern as
+    # search_picker.py.
+    close_btn = tk.Label(
+        title_frame,
+        text="  ✕  ",
+        font=("Segoe UI", 13, "bold"),
+        fg=_FG_DIM,
+        bg=_BG,
+        cursor="hand2",
+    )
+    close_btn.pack(side=tk.RIGHT, padx=(10, 0))
+    close_btn.bind("<Button-1>", _close_picker)
+    close_btn.bind("<Enter>", lambda _e: close_btn.config(fg=_ACCENT))
+    close_btn.bind("<Leave>", lambda _e: close_btn.config(fg=_FG_DIM))
+
     tk.Label(
         title_frame,
         text="↑/↓ = Move   Enter = Select   ESC = Close",
@@ -202,7 +242,9 @@ def _create_picker(
 
             p.config(
                 bg=bg,
-                fg="#ffccdd" if is_active else _FG_DIM,
+                # Active row is red (#D9060D) — use near-white for readability.
+                # Old value #ffccdd was a pink meant to sit on magenta bg.
+                fg="#ffe0e0" if is_active else _FG_DIM,
                 font=("Segoe UI", 9)
             )
 
@@ -241,10 +283,32 @@ def _create_picker(
     update_selection()
 
     # ── ESC to close ──
+    # tk.bind_all only fires when the Tk app has OS-level keyboard focus.
+    # With overrideredirect(True) + aggressive focus-stealing the picker's
+    # focus can be reclaimed by the previous foreground app before the
+    # user presses ESC. A pynput global key listener bypasses Tk's focus
+    # chain entirely — ESC always closes the picker, no matter which
+    # window owns the foreground. Same pattern as search_picker.py.
     root.bind_all("<Escape>", _close_picker)
     # We consciously REMOVED <FocusOut> here, because Windows focus-stealing
-    # hacks often immediately trigger a FocusOut event, closing the window 
+    # hacks often immediately trigger a FocusOut event, closing the window
     # before the user sees it. Now it stays open until explicitly closed.
+
+    global _esc_listener
+    if _pynput_available:
+        def _on_global_press(key):
+            if key == _pyk.Key.esc:
+                # Hop onto TkUIThread before touching any Tk state.
+                get_tk_manager().schedule(_close_picker)
+                return False  # stop the listener after the first ESC
+            return True
+
+        _esc_listener = _pyk.Listener(on_press=_on_global_press)
+        try:
+            _esc_listener.daemon = True  # type: ignore[attr-defined]
+            _esc_listener.start()
+        except Exception:
+            _esc_listener = None
 
     # ── Position: center of screen ──
     # Hide window while moving it to prevent flickering

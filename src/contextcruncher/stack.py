@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, asdict
 import os
 import json
 import logging
+import time
 from contextcruncher.config import _APP_DIR
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,12 @@ logger = logging.getLogger(__name__)
 MAX_STACK_SIZE = 50
 MAX_PINNED_SIZE = 10
 PINNED_PATH = os.path.join(_APP_DIR, "pinned.json")
+
+# Dedup window for push_variants(): reject an incoming entry whose original
+# text matches any of the N most-recent entries. Protects against Auto-Crunch
+# ping-pong (A → compressed(A) → A re-paste) and accidental re-copies of the
+# same source while the user moves text between windows.
+_DEDUP_WINDOW = 10
 
 
 @dataclass
@@ -37,6 +44,9 @@ class _Entry:
     """A single stack entry holding multiple text variants."""
     variants: list[Variant] = field(default_factory=list)
     active_index: int = 0
+    # Unix timestamp (seconds) when this entry was created. Used by the
+    # tray menu to render a relative "freshness" hint like "now" / "2m".
+    created_at: float = field(default_factory=time.time)
 
     @property
     def text(self) -> str:
@@ -184,9 +194,22 @@ class TextStack:
             )
             return
 
-        # Avoid duplicate consecutive pushes of the exactly identical original text
-        if self._items and self._items[0].original == variants[0].text:
-            return
+        # Dedup — reject if the new original matches any of the _DEDUP_WINDOW
+        # most-recent entries. Fixes Auto-Crunch ping-pong (Bild 1) where the
+        # same source text kept landing in the stack twice because the check
+        # only looked at index 0.
+        new_text = variants[0].text
+        dedup_limit = min(_DEDUP_WINDOW, len(self._items))
+        for i in range(dedup_limit):
+            if self._items[i].original == new_text:
+                # Move the existing entry to the front so recency stays
+                # correct instead of silently dropping the re-copy.
+                if i != 0:
+                    existing = self._items[i]
+                    del self._items[i]
+                    self._items.appendleft(existing)
+                self._cursor = 0
+                return
 
         self._items.appendleft(_Entry(variants=variants))
         self._cursor = 0

@@ -6,18 +6,18 @@
 
 **AI-optimized clipboard manager with screen OCR, token compression, and MCP server — no cloud, no admin, everything stays in RAM.**
 
-> 🚀 **v2.0** — AI-Compression Update. New `ai_compress` MCP tool with hybrid neuro-symbolic extraction, code-safe deterministic compression (BUG-13 fix), and a CLAUDE.md fidelity benchmark. See the [Changelog](CHANGELOG.md) for details.
+> 🚀 **v2.0.1** — Hotkey rework (AltGr-safe `Ctrl+Shift+` defaults, no more menu-bar or word-selection collisions), Settings window empty-render fix, toast stacking, ping-pong dedup window, red-themed scrollbar + section borders. See the [Changelog](CHANGELOG.md) for details.
 
 ---
 
 ## ✨ Features
 
 - **Instant OCR** — Select any area on screen; text is recognized in under 1 second using the native Windows OCR engine (no internet required)
-- **Full-Screen OCR** — Capture the entire primary monitor in one keystroke (`Ctrl+Alt+F`) — no selection needed
+- **Full-Screen OCR** — Capture the entire primary monitor in one keystroke (`Ctrl+Shift+1`) — no selection needed
 - **AI Token Compression** — Single-pass, content-type-aware compression saves typically 25–45% of prose/log tokens (and preserves code 1:1) for LLMs (GPT, Claude, Gemini) — verified with tiktoken benchmarks
 - **Multi-Variant System** — Every entry stores multiple compression variants. Cycle through them with a single hotkey or use the Win+V-style popup picker
 - **Clipboard Stack** — Every scan is pushed onto a history stack (up to 50 entries). Navigate freely and paste any entry with a single keystroke. **New:** Pin up to 10 entries to make them survive application restarts!
-- **Search Overlay** — Press `Ctrl+Shift+F` to search through your stack history and pinned elements interactively.
+- **Search Overlay** — Press `Ctrl+Shift+Space` to search through your stack history and pinned elements interactively.
 - **Auto-Crunch Monitor** — Always runs in the background to capture all clipboard copies to your local stack for instant crunching. Turn on Auto-Crunch to actively compress and overwrite the live OS clipboard.
 - **Zero-Trust Security Scanner** — Built-in redactor automatically wipes out common secrets (API keys, JWTs, Webhooks, AWS/Stripe/OpenAI keys) before processing any text. Shannon-entropy catch-all for unknown secrets.
 - **Code & Payload Skeletonizer** — Intelligently shrinks large datasets by keeping structure but cropping massive repetitive string values (JSON/XML/YAML) and uses `tree-sitter` for robust JavaScript/TypeScript function blanking.
@@ -60,16 +60,17 @@ python src/contextcruncher/main.py
 
 | Hotkey | Action |
 |---|---|
-| `Ctrl+Alt+S` | Open selection overlay → OCR scan → push to stack |
-| `Ctrl+Alt+F` | Full-screen OCR — captures entire primary monitor |
-| `Ctrl+Alt+C` | Compress clipboard content with AI token optimizer |
-| `Ctrl+Shift+↑` | Navigate to a newer stack entry |
-| `Ctrl+Shift+↓` | Navigate to an older stack entry |
-| `Ctrl+Shift+→` | Cycle through text variants |
-| `Ctrl+Shift+F` | Open Search Overlay to find stack history/pins |
-| `Alt+H` | Open Token Heatmap window |
+| `Ctrl+Shift+1` | Full-screen OCR — captures entire primary monitor |
+| `Ctrl+Shift+2` | Open selection overlay → OCR scan → push to stack |
+| `Ctrl+Shift+A` | Compress clipboard content with AI token optimizer |
+| `Ctrl+Shift+PageUp` | Navigate to a newer stack entry |
+| `Ctrl+Shift+PageDown` | Navigate to an older stack entry |
+| `Ctrl+Shift+Space` | Open Search Overlay to find stack history/pins |
+| `Ctrl+Shift+H` | Open Token Heatmap window |
 
 All hotkeys are fully customizable in Settings. Individual hotkeys can be cleared with the `×` button next to each binding. **Mouse side buttons (X1 / X2) can also be assigned to any action.**
+
+> **Why these combos and not `Ctrl+Alt+…` or `Alt+<letter>`?** The old defaults silently lost on three common setups: `Alt+<letter>` hijacks the Office/Explorer menu bar, `Ctrl+Alt+<letter>` is physically identical to `AltGr` on German/French/Italian/Spanish keyboards (so `AltGr+E` = `€` races with the global hook), and `Ctrl+Shift+<arrow>` collides with word-selection in every text editor. The new scheme uses `Ctrl+Shift+<digit|letter|PageUp/Down|Space>` exclusively, which sidesteps all three.
 
 ---
 
@@ -232,6 +233,19 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 
 > Full changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
+### v2.0.1 — Hotkey Rework & UX Polish
+
+- **All default hotkeys reworked** — `Ctrl+Shift+<digit|letter|navkey>` only. Retires `Ctrl+Alt+<letter>` (AltGr collision on DE/FR/IT/ES keyboards), `Alt+<letter>` (Office menu-bar hijack), and `Ctrl+Shift+<arrow>` (word-selection conflict). Pinned by 7 new regression tests in `test_hotkey_defaults.py`.
+- **Settings empty-render fix (Bild 5)** — `canvas.create_window(anchor="n")` was placing the scroll frame's top-*center* at x=0, pushing half the content into negative X. Changed to `anchor="nw"`. Mouse-wheel binding scoped to the Settings window so it no longer hijacks wheel events in other Toplevels.
+- **Toast stacking (Bild 9)** — Two toasts firing back-to-back no longer land on identical coordinates. Module-level `_active_toasts` list + `_reflow_toasts()` with `_TOAST_GAP = 10px` separation. Destroyed Toplevels are purged on every reflow.
+- **Ping-pong dedup (Bild 1)** — `TextStack.push_variants` now scans the last 10 entries and re-fronts existing entries on match (preserving their variants) instead of creating a duplicate. Fixes the Auto-Crunch `A → B → A` → `[A, B, A]` bug.
+- **Mouse-recorder grace period (Bild 3)** — `_HotkeyField` ignores X1/X2 presses for 250 ms after the recorder opens, so a thumb resting on the side button during the left-click that opened the field doesn't get captured as the binding.
+- **Red-themed Settings UI** — `ttk.Scrollbar` under `clam` styled with the `#D9060D` accent (the native Windows scrollbar ignored all color options). LabelFrame section borders changed from muted system groove to a solid 1px red outline via `highlightbackground`.
+- **Stack Search & Variant Picker polish** — Both popups migrated from the legacy magenta palette (`#1a1a2e` / `#e94560`) to the app-wide red theme (`#121212` / `#D9060D`), got a visible ✕ close button in the title bar, and now close reliably on ESC even when focus never reached the popup — via a pynput global key listener that bypasses Tk's focus chain.
+- **Toast bottom-left positioning** — Toasts moved from bottom-center (clashed with taskbar clock) to bottom-left (Google-style). Stack still reflows upward for multiple simultaneous toasts.
+- **Settings window size** — Minimum size raised from 480×400 to 720×640 so all three sections (Hotkeys, General, AI Compression) fit without forced scrolling.
+- **Test suite:** 456 passed · 11 skipped · 0 failed.
+
 ### v2.0 — AI-Compression Update
 
 - **`ai_compress` MCP tool** — LLM-based semantic compression with hybrid neuro-symbolic extraction. Supports OpenAI, Anthropic, Ollama. Opt-in, off by default.
@@ -279,8 +293,6 @@ ContextCruncher is designed with a **zero-trust, zero-footprint** philosophy:
 ---
 
 ## 🗺️ Roadmap
-
-> Full roadmap: [`docs/roadmap.md`](docs/roadmap.md)
 
 ### ✅ Recently Shipped
 

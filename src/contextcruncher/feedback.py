@@ -159,14 +159,69 @@ def _do_flash(bbox: tuple[int, int, int, int]) -> None:
 # Toast notification
 # ---------------------------------------------------------------------------
 
-def show_toast(text: str) -> None:
-    """Show a dark popup at the bottom of the screen for 1.5 s.
+# Bottom-anchored vertical stack of currently visible toasts. Newest toast sits
+# at index 0 (closest to the bottom); older toasts are pushed upward so two
+# nearly-simultaneous toasts never render on top of each other.
+#
+# Accessed only from TkUIThread (all mutations happen inside scheduled
+# callbacks), so no lock is needed.
+_active_toasts: list[tk.Toplevel] = []
 
-    Safe to call from any thread.
+# Vertical gap between stacked toasts.
+_TOAST_GAP = 10
+# Distance from screen bottom to the newest toast.
+_TOAST_BOTTOM_MARGIN = 40
+# Distance from screen left edge (bottom-left anchoring, Google-style —
+# previously the toast was centered which clashed with the Windows taskbar
+# clock/calendar area and with content on the middle of the screen).
+_TOAST_LEFT_MARGIN = 24
+# Auto-dismiss delay.
+_TOAST_DURATION_MS = 1500
+
+
+def show_toast(text: str) -> None:
+    """Show a dark popup at the bottom of the screen for ~1.5 s.
+
+    Safe to call from any thread. Multiple toasts stack vertically instead
+    of overlapping — the newest is closest to the bottom, older toasts
+    slide up as new ones arrive.
     """
     if not text:
         return
     get_tk_manager().schedule(_do_toast, text)
+
+
+def _reflow_toasts() -> None:
+    """Re-position all active toasts bottom-up.
+
+    Called after a toast is added or removed so the stack stays gap-less.
+    Runs on TkUIThread only.
+    """
+    # Purge any toasts whose underlying window has been destroyed.
+    alive: list[tk.Toplevel] = []
+    for t in _active_toasts:
+        try:
+            if t.winfo_exists():
+                alive.append(t)
+        except tk.TclError:
+            continue
+    _active_toasts[:] = alive
+    if not alive:
+        return
+
+    sh = alive[0].winfo_screenheight()
+    y_cursor = sh - _TOAST_BOTTOM_MARGIN
+    for toast in alive:
+        try:
+            h = toast.winfo_reqheight()
+            # Bottom-left anchoring (Google-toast style). All toasts share
+            # the same x so the left edge forms a clean vertical column.
+            x = _TOAST_LEFT_MARGIN
+            y = y_cursor - h
+            toast.geometry(f"+{x}+{y}")
+            y_cursor = y - _TOAST_GAP
+        except tk.TclError:
+            pass
 
 
 def _do_toast(text: str) -> None:
@@ -192,12 +247,18 @@ def _do_toast(text: str) -> None:
     lbl.pack()
 
     win.update_idletasks()
-    w = win.winfo_reqwidth()
-    h = win.winfo_reqheight()
-    sw = win.winfo_screenwidth()
-    sh = win.winfo_screenheight()
-    x = (sw - w) // 2
-    y = sh - h - 150
-    win.geometry(f"+{x}+{y}")
 
-    win.after(1500, win.destroy)
+    # Insert at the head so the newest toast sits at the bottom of the stack.
+    _active_toasts.insert(0, win)
+    _reflow_toasts()
+
+    def _dismiss() -> None:
+        try:
+            win.destroy()
+        except tk.TclError:
+            pass
+        if win in _active_toasts:
+            _active_toasts.remove(win)
+        _reflow_toasts()
+
+    win.after(_TOAST_DURATION_MS, _dismiss)

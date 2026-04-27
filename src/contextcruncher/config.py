@@ -32,14 +32,31 @@ CONFIG_PATH = os.path.join(_APP_DIR, "config.json")
 # -----------------------------------------------------------------------
 # Defaults
 # -----------------------------------------------------------------------
+#
+# Hotkey selection rules (why these combos):
+#
+#  • No <alt>+<letter> alone — Alt activates menu bars in Office/Windows
+#    Explorer (the old `Alt+H` opened the Home ribbon and blocked our
+#    Heatmap trigger).
+#  • No <ctrl>+<alt>+<letter> — AltGr = Ctrl+Alt on German/European layouts,
+#    so these combos race with character composition (@, €, {, }, µ, …).
+#  • No <ctrl>+<shift>+<arrow> — every text editor uses those for word
+#    selection; the hotkey would fight typing flow.
+#  • No Win+<letter>/Win+Shift+<digit> — reserved by Windows.
+#
+# The scheme below uses <ctrl>+<shift>+<digit|letter|navkey>. Digits are
+# layout-agnostic (same physical row on every keyboard) and digit combos
+# are rarely claimed by applications. Letters are mnemonic where the
+# collision risk is low.
+#
 DEFAULT_HOTKEYS: dict[str, str] = {
-    "scan": "<ctrl>+<alt>+s",
-    "screenshot_full": "<ctrl>+<alt>+f",   # FR-01: full-screen OCR
-    "ai_compact": "<ctrl>+<alt>+c",
-    "navigate_up": "<ctrl>+<shift>+<up>",
-    "navigate_down": "<ctrl>+<shift>+<down>",
-    "search_stack": "<ctrl>+<shift>+<right>",
-    "hotkey_heatmap": "<alt>+h",
+    "scan":            "<ctrl>+<shift>+2",          # 2 = region (partial)
+    "screenshot_full": "<ctrl>+<shift>+1",          # 1 = full (whole screen)
+    "ai_compact":      "<ctrl>+<shift>+a",          # A = AI
+    "navigate_up":     "<ctrl>+<shift>+<page_up>",  # PgUp = newer, avoids arrow conflict
+    "navigate_down":   "<ctrl>+<shift>+<page_down>",
+    "search_stack":    "<ctrl>+<shift>+<space>",    # thumb-friendly
+    "hotkey_heatmap":  "<ctrl>+<shift>+h",          # H = Heatmap
 }
 
 _DEFAULT_CONFIG: dict[str, Any] = {

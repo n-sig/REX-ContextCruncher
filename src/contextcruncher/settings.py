@@ -21,9 +21,16 @@ import logging
 import os
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
+
+# Grace period after entering recording mode during which mouse-side-button
+# presses are ignored. Prevents an accidental X1/X2 press (thumb resting on
+# the mouse while left-clicking the recorder field) from being captured as
+# the intended binding. Addresses the concern raised for Bild 3.
+_MOUSE_RECORD_GRACE_S = 0.25
 
 from PIL import Image, ImageTk
 from pynput import keyboard as kb
@@ -100,6 +107,10 @@ class _HotkeyField(tk.Frame):
         self._pressed_keys: set[str] = set()
         self._listener: kb.Listener | None = None
         self._mouse_listener: "_mouse_mod.Listener | None" = None  # FR-04
+        # Monotonic timestamp of when recording started; used to ignore
+        # accidental X1/X2 presses that fire at the same moment as the
+        # left-click that opened the recorder.
+        self._record_start_t: float = 0.0
 
         self._label = tk.Label(
             self,
@@ -146,6 +157,7 @@ class _HotkeyField(tk.Frame):
         if self._recording:
             return
         self._recording = True
+        self._record_start_t = time.monotonic()
         self._pressed_keys.clear()
         hint = " or 🖱 side btn" if _mouse_record_available else ""
         self._label.config(text=f"⌨ Press keys…{hint}", bg=_ACCENT_BLUE, fg="#1e1e2e")
@@ -165,9 +177,17 @@ class _HotkeyField(tk.Frame):
             self._mouse_listener.start()
 
     def _on_mouse_click(self, x, y, button, pressed: bool) -> None:
-        """FR-04 — called from pynput mouse thread during recording."""
+        """FR-04 — called from pynput mouse thread during recording.
+
+        Ignores clicks that fire within ``_MOUSE_RECORD_GRACE_S`` of the
+        recorder opening. A user clicking the field with their left mouse
+        button while their thumb rests on X1/X2 would otherwise bind the
+        side button accidentally (see the Bild 3 concern).
+        """
         if not self._recording or not pressed:
             return
+        if time.monotonic() - self._record_start_t < _MOUSE_RECORD_GRACE_S:
+            return  # swallow the click that opened the recorder
         combo = _MOUSE_RECORD_MAP.get(button)
         if combo:
             # Replace pressed_keys with the mouse button token and finalize
@@ -322,63 +342,140 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
     save_triggered = threading.Event()
 
     def _build() -> None:
-        """Build and show the dialog — runs on TkUIThread."""
+        """Build and show the dialog — runs on TkUIThread.
+
+        FIX (empty-render bug / Bild 5):
+          Previously the scroll_frame was placed via ``canvas.create_window((0, 0),
+          anchor="n")`` — the "n" anchor puts the frame's top-*center* at the
+          canvas origin, which pushes half the content into negative X. With
+          ``itemconfig(width=event.width)`` it still drew centered-around-0,
+          so on unlucky Configure-event orderings the window appeared as a
+          pure black area with no widgets visible. The fix is ``anchor="nw"``
+          (top-left), so the frame is pinned to (0, 0) like any normal layout.
+        """
         global _settings_open
-        root = get_tk_manager().root
-        if root is None:
-            log.error("settings: TkManager root unavailable")
+        try:
+            root = get_tk_manager().root
+            if root is None:
+                log.error("settings: TkManager root unavailable")
+                _settings_open = False
+                done_event.set()
+                return
+
+            win = tk.Toplevel(root)
+            win.title(f"ContextCruncher v{__version__} — Settings")
+            win.configure(bg=_BG)
+            win.resizable(True, True)
+            # Min-size was 480×400 — too cramped, rows felt squished. The
+            # hotkey column needs ~280px for the combo text + clear button;
+            # combined with the 140px action label plus 40px padding that's
+            # already 460px of pure content width. 640×640 gives each section
+            # some breathing room without forcing a scroll on most desktops.
+            win.minsize(640, 560)
+            win.attributes("-topmost", True)
+
+            # Window icon
+            try:
+                icon_path = _get_resource_path(os.path.join("assets", "icon.png"))
+                if os.path.exists(icon_path):
+                    img = Image.open(icon_path)
+                    photo = ImageTk.PhotoImage(img)
+                    win._icon_photo = photo  # type: ignore[attr-defined]  # prevent GC
+                    win.wm_iconphoto(True, photo)
+            except Exception:
+                pass  # Non-fatal
+
+            # ── Scrollable container ─────────────────────────────────────────
+            outer = tk.Frame(win, bg=_BG)
+            outer.pack(fill=tk.BOTH, expand=True)
+
+            # Red-themed ttk.Scrollbar. tk.Scrollbar on Windows ignores color
+            # options entirely (falls through to the native XP/Vista theme,
+            # which is why the old one appeared as a bright white strip on
+            # the dark background). ttk.Scrollbar honors per-widget styles
+            # only under the "clam" theme — "vista" / "winnative" / "xpnative"
+            # bypass Tk's color options and draw from the Windows visual
+            # styles API. Only a handful of ttk widgets are used in this app
+            # (none outside this dialog), so switching the theme globally
+            # here is safe.
+            style = ttk.Style()
+            try:
+                if style.theme_use() != "clam":
+                    style.theme_use("clam")
+            except tk.TclError:
+                pass
+            style.configure(
+                "Red.Vertical.TScrollbar",
+                background=_ACCENT,
+                troughcolor=_BG_FIELD,
+                bordercolor=_BG,
+                arrowcolor=_FG,
+                lightcolor=_ACCENT,
+                darkcolor=_ACCENT,
+                gripcount=0,
+                relief="flat",
+            )
+            style.map(
+                "Red.Vertical.TScrollbar",
+                background=[
+                    ("pressed", _ACCENT_BLUE),
+                    ("active", _ACCENT_BLUE),
+                    ("!active", _ACCENT),
+                ],
+                arrowcolor=[("disabled", _FG_DIM), ("!disabled", _FG)],
+            )
+
+            canvas = tk.Canvas(outer, bg=_BG, highlightthickness=0)
+            scrollbar = ttk.Scrollbar(
+                outer, orient="vertical", command=canvas.yview,
+                style="Red.Vertical.TScrollbar",
+            )
+            scroll_frame = tk.Frame(canvas, bg=_BG)
+
+            scroll_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+            )
+            # anchor="nw" (NOT "n"): pin frame's top-left at canvas origin.
+            # See function docstring for the empty-render bug this avoids.
+            canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+
+            def _on_canvas_configure(event):
+                canvas.itemconfig(canvas_window, width=event.width)
+            canvas.bind("<Configure>", _on_canvas_configure)
+
+            canvas.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            # Mouse-wheel scrolling — scoped to the Settings window only so it
+            # doesn't hijack wheel events in other Toplevels (heatmap, etc.).
+            def _on_mousewheel(event):
+                try:
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                except tk.TclError:
+                    pass  # canvas was destroyed mid-event
+
+            def _bind_wheel(_e=None):
+                win.bind_all("<MouseWheel>", _on_mousewheel)
+            def _unbind_wheel(_e=None):
+                try:
+                    win.unbind_all("<MouseWheel>")
+                except tk.TclError:
+                    pass
+            win.bind("<Enter>", _bind_wheel)
+            win.bind("<Leave>", _unbind_wheel)
+            win.bind("<FocusIn>", _bind_wheel)
+            win.bind("<FocusOut>", _unbind_wheel)
+
+            # Redirect all .pack() targets from `win` to `scroll_frame`
+            win_content = scroll_frame
+        except Exception:
+            # If build blows up for any reason, never leave _settings_open stuck.
+            log.exception("settings: _build failed before window was ready")
             _settings_open = False
             done_event.set()
             return
-
-        win = tk.Toplevel(root)
-        win.title(f"ContextCruncher v{__version__} — Settings")
-        win.configure(bg=_BG)
-        win.resizable(True, True)
-        win.minsize(480, 400)
-        win.attributes("-topmost", True)
-
-        # Window icon
-        try:
-            icon_path = _get_resource_path(os.path.join("assets", "icon.png"))
-            if os.path.exists(icon_path):
-                img = Image.open(icon_path)
-                photo = ImageTk.PhotoImage(img)
-                win._icon_photo = photo  # type: ignore[attr-defined]  # prevent GC
-                win.wm_iconphoto(True, photo)
-        except Exception:
-            pass  # Non-fatal
-
-        # ── Scrollable container ─────────────────────────────────────────
-        outer = tk.Frame(win, bg=_BG)
-        outer.pack(fill=tk.BOTH, expand=True)
-
-        canvas = tk.Canvas(outer, bg=_BG, highlightthickness=0)
-        scrollbar = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-        scroll_frame = tk.Frame(canvas, bg=_BG)
-
-        scroll_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-        canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="n")
-
-        # Keep scroll_frame centered and sized to canvas width
-        def _on_canvas_configure(event):
-            canvas.itemconfig(canvas_window, width=event.width)
-        canvas.bind("<Configure>", _on_canvas_configure)
-
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Mouse-wheel scrolling
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        # Redirect all .pack() targets from `win` to `scroll_frame`
-        win_content = scroll_frame
 
         # ── Title ────────────────────────────────────────────────────────
         tk.Label(
@@ -391,9 +488,13 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         ).pack(pady=(0, 15))
 
         # ── Hotkeys section ───────────────────────────────────────────────
+        # Red 1px border via highlightbackground (bd=0, relief="flat" removes
+        # the default system groove/ridge which renders as a muted gray line).
         hotkey_frame = tk.LabelFrame(
             win_content, text="  Hotkeys  ", font=("Segoe UI", 11, "bold"),
-            fg=_ACCENT, bg=_BG, bd=1, relief="groove",
+            fg=_ACCENT, bg=_BG, bd=0, relief="flat",
+            highlightbackground=_ACCENT, highlightcolor=_ACCENT,
+            highlightthickness=1,
             labelanchor="n", padx=15, pady=10,
         )
         hotkey_frame.pack(padx=25, pady=(0, 10), fill=tk.X)
@@ -432,7 +533,9 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         # ── General settings ──────────────────────────────────────────────
         general_frame = tk.LabelFrame(
             win_content, text="  General  ", font=("Segoe UI", 11, "bold"),
-            fg=_ACCENT, bg=_BG, bd=1, relief="groove",
+            fg=_ACCENT, bg=_BG, bd=0, relief="flat",
+            highlightbackground=_ACCENT, highlightcolor=_ACCENT,
+            highlightthickness=1,
             labelanchor="n", padx=15, pady=10,
         )
         general_frame.pack(padx=25, pady=(0, 10), fill=tk.X)
@@ -558,7 +661,9 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         # ── AI Compression (LLM) section ─────────────────────────────────
         ai_frame = tk.LabelFrame(
             win_content, text="  AI Compression (LLM)  ", font=("Segoe UI", 11, "bold"),
-            fg=_ACCENT, bg=_BG, bd=1, relief="groove",
+            fg=_ACCENT, bg=_BG, bd=0, relief="flat",
+            highlightbackground=_ACCENT, highlightcolor=_ACCENT,
+            highlightthickness=1,
             labelanchor="n", padx=15, pady=10,
         )
         ai_frame.pack(padx=25, pady=(0, 10), fill=tk.X)
@@ -788,8 +893,14 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         def _close_window() -> None:
             global _settings_open
             _cleanup_fields()
-            canvas.unbind_all("<MouseWheel>")
-            win.destroy()
+            try:
+                win.unbind_all("<MouseWheel>")
+            except tk.TclError:
+                pass  # already destroyed / unbound
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
             _settings_open = False
 
         def _cancel() -> None:
@@ -812,10 +923,13 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
             bd=0, padx=20, pady=8, cursor="hand2",
         ).pack(side=tk.LEFT, padx=8)
 
-        # Size and center on screen — cap height to 85% of screen
+        # Size and center on screen — cap height to 85% of screen. Use
+        # max(req, minsize) so the window never opens smaller than minsize
+        # even if the measured content happens to be narrower (e.g. on a
+        # system with a very narrow default font metric).
         win.update_idletasks()
-        w = win.winfo_reqwidth()
-        h = win.winfo_reqheight()
+        w = max(win.winfo_reqwidth(), 720)
+        h = max(win.winfo_reqheight(), 640)
         screen_h = win.winfo_screenheight()
         max_h = int(screen_h * 0.85)
         if h > max_h:
