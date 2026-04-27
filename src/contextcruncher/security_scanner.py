@@ -56,19 +56,14 @@ _DEFAULT_SECRETS_PATTERNS: dict[str, re.Pattern] = {
         r'\beyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b'
     ),
 
-    # Standard UUIDs  (database IDs, correlation IDs, etc.)
-    "[UUID_REDACTED]": re.compile(
-        r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'
-    ),
-
     # PEM private key blocks  (RSA, OPENSSH, EC, PKCS8, etc.)
     "[PRIVATE_KEY_REDACTED]": re.compile(
         r'-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z]+ )?PRIVATE KEY-----',
         re.DOTALL,
     ),
 
-    # IPv4 addresses  (NOTE: may fire on version strings like 1.0.0.1 — acceptable trade-off)
-    "[IP_REDACTED]": re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'),
+    # NOTE: IPv4 and UUID patterns moved to context-sensitive functions
+    # _redact_ips() and _redact_uuids() — see below.
 }
 
 SECRETS_PATTERNS: dict[str, re.Pattern] = dict(_DEFAULT_SECRETS_PATTERNS)
@@ -165,6 +160,108 @@ def _redact_high_entropy(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Context-sensitive IPv4 redaction  (Task 3.1)
+# ---------------------------------------------------------------------------
+
+_IPV4_RE: re.Pattern = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+
+# Words that, when appearing directly before a dotted quad, indicate a
+# version string rather than an IP address.  Matched case-insensitively.
+_VERSION_PREFIXES: re.Pattern = re.compile(
+    r'\b(?:version|ver|v|python|node|npm|ruby|java|php|go|perl|dotnet|'  # noqa: E501
+    r'rust|swift|kotlin|r|julia|elixir|erlang|clang|gcc|cmake)\s*$',
+    re.IGNORECASE,
+)
+
+
+def _redact_ips(text: str) -> str:
+    """Replace IPv4 addresses with ``[IP_REDACTED]``, skipping version strings.
+
+    A match is skipped when:
+    - Any octet exceeds 255 (not a valid IPv4 address).
+    - The text immediately before the match ends with a known version keyword
+      (e.g. ``Python``, ``version``, ``v``, ``node``, …).
+    """
+    def _replace(m: re.Match) -> str:
+        ip = m.group(0)
+        octets = ip.split(".")
+        # Validate: all octets must be 0-255
+        if any(int(o) > 255 for o in octets):
+            return ip
+        # Check for version-string context immediately before the match
+        # Only look at a small window (30 chars) to avoid false matches
+        # from unrelated 'version' words earlier in the text.
+        prefix = text[max(0, m.start() - 30):m.start()]
+        if _VERSION_PREFIXES.search(prefix):
+            return ip
+        return "[IP_REDACTED]"
+
+    return _IPV4_RE.sub(_replace, text)
+
+
+# ---------------------------------------------------------------------------
+# Context-sensitive UUID redaction  (Task 3.2)
+# ---------------------------------------------------------------------------
+
+_UUID_RE: re.Pattern = re.compile(
+    r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'
+)
+
+# Keywords near a UUID that strongly suggest it IS a secret worth redacting.
+_SECRET_KEYWORDS: re.Pattern = re.compile(
+    r'(?:secret|token|key|password|credential|auth|bearer|api.?key)',
+    re.IGNORECASE,
+)
+
+# Context before a UUID that suggests it is part of a URL or config ID.
+_URL_CONTEXT_RE: re.Pattern = re.compile(
+    r'(?:https?://|://|/api/|/v[0-9]+/)\S*$',
+    re.IGNORECASE,
+)
+_CONFIG_CONTEXT_RE: re.Pattern = re.compile(
+    r'(?:^|\s)(?:id|uuid|correlation.?id|request.?id|trace.?id|message.?id|session.?id|'  # noqa: E501
+    r'transaction.?id|job.?id|run.?id|build.?id|deployment.?id)\s*[:=]\s*$',
+    re.IGNORECASE,
+)
+
+
+def _redact_uuids(text: str) -> str:
+    """Replace UUIDs with ``[UUID_REDACTED]`` only when they look like secrets.
+
+    A UUID is **kept** (not redacted) when:
+    - It appears inside a URL (``http(s)://…/uuid``).
+    - It follows a config-style identifier key (``id:``, ``uuid:``, …).
+
+    A UUID is **redacted** when:
+    - A secret-related keyword (``secret``, ``token``, ``key``, ``password``,
+      …) appears nearby (within 80 chars before the UUID).
+    - It appears standalone (no URL or config context) — as a safety default.
+
+    Trade-off: prefer *not* redacting over destroying URLs / config IDs.
+    """
+    def _replace(m: re.Match) -> str:
+        uuid_str = m.group(0)
+        prefix = text[max(0, m.start() - 80):m.start()]
+
+        # Skip: UUID is part of a URL path
+        if _URL_CONTEXT_RE.search(prefix):
+            return uuid_str
+
+        # Skip: UUID follows a config key like "id:" or "uuid:"
+        if _CONFIG_CONTEXT_RE.search(prefix):
+            return uuid_str
+
+        # Redact: nearby secret keyword makes this suspicious
+        if _SECRET_KEYWORDS.search(prefix):
+            return "[UUID_REDACTED]"
+
+        # Default: keep the UUID (conservative — don't break developer context)
+        return uuid_str
+
+    return _UUID_RE.sub(_replace, text)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -175,8 +272,9 @@ def redact_secrets(text: str) -> str:
     Safe to call on any string — returns the original value unchanged if
     *text* is falsy.
 
-    Two passes are applied in order:
+    Three passes are applied in order:
       1. Known-pattern redaction (Stripe, OpenAI, AWS, JWT, GitHub, …)
+      1b. Context-sensitive IPv4 and UUID redaction
       2. High-entropy catch-all for secrets without a recognisable prefix
     """
     if not text:
@@ -186,6 +284,10 @@ def redact_secrets(text: str) -> str:
     redacted = text
     for tag, pattern in SECRETS_PATTERNS.items():
         redacted = pattern.sub(tag, redacted)
+
+    # Pass 1b — context-sensitive IP and UUID redaction
+    redacted = _redact_ips(redacted)
+    redacted = _redact_uuids(redacted)
 
     # Pass 2 — entropy-based detection (runs on already-cleaned text so
     #           known-pattern placeholders are never double-processed)

@@ -5,7 +5,10 @@ from pathlib import Path
 # Add src to python path for testing
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from contextcruncher.security_scanner import redact_secrets, _shannon_entropy, _looks_like_secret
+from contextcruncher.security_scanner import (
+    redact_secrets, _shannon_entropy, _looks_like_secret,
+    _redact_ips, _redact_uuids,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -26,8 +29,14 @@ def test_redact_github_tokens():
     assert redact_secrets(text) == "Deploy with [GH_TOKEN_REDACTED]"
 
 def test_redact_ips_and_uuids():
+    # IP is still redacted (valid octets, no version prefix)
+    # UUID after "ID " is in config-context → NOT redacted (conservative)
     text = "Server ping 192.168.1.1 ID 123e4567-e89b-12d3-a456-426614174000"
-    assert redact_secrets(text) == "Server ping [IP_REDACTED] ID [UUID_REDACTED]"
+    result = redact_secrets(text)
+    assert "[IP_REDACTED]" in result
+    assert "192.168.1.1" not in result
+    # UUID in config context is preserved
+    assert "123e4567-e89b-12d3-a456-426614174000" in result
 
 def test_no_secrets():
     text = "Just normal text 1234 hello"
@@ -161,6 +170,127 @@ def test_multiple_secrets_in_one_string():
     result = redact_secrets(text)
     assert "[AWS_KEY_REDACTED]" in result
     assert "[STRIPE_KEY_REDACTED]" in result
-    assert "[UUID_REDACTED]" in result
+    # UUID after "uuid=" is config-context → preserved (conservative)
+    assert "123e4567-e89b-12d3-a456-426614174000" in result
     assert "AKIA" not in result
     assert "sk_live_" not in result
+
+
+# ---------------------------------------------------------------------------
+# Context-sensitive IPv4 redaction (Task 3.1)
+# ---------------------------------------------------------------------------
+
+def test_ip_redacted_standard():
+    """A normal IP address with no version context is redacted."""
+    assert _redact_ips("connect to 192.168.1.1") == "connect to [IP_REDACTED]"
+
+def test_ip_redacted_multiple():
+    """Multiple IPs in one string are all redacted."""
+    text = "from 10.0.0.1 to 10.0.0.2"
+    result = _redact_ips(text)
+    assert result == "from [IP_REDACTED] to [IP_REDACTED]"
+
+def test_ip_skipped_python_version():
+    """Python 3.11.0.1 should NOT be treated as an IP."""
+    assert _redact_ips("Python 3.11.0.1") == "Python 3.11.0.1"
+
+def test_ip_skipped_version_keyword():
+    """'version 1.2.3.4' should NOT be treated as an IP."""
+    assert _redact_ips("version 1.2.3.4") == "version 1.2.3.4"
+
+def test_ip_skipped_v_prefix():
+    """'v1.2.3.4' should NOT be treated as an IP."""
+    assert _redact_ips("v1.2.3.4") == "v1.2.3.4"
+
+def test_ip_skipped_node_version():
+    """'node 18.17.0.1' should NOT be treated as an IP."""
+    assert _redact_ips("node 18.17.0.1") == "node 18.17.0.1"
+
+def test_ip_skipped_invalid_octets():
+    """Octets > 255 are not valid IPs and should be skipped."""
+    assert _redact_ips("value 999.999.999.999") == "value 999.999.999.999"
+
+def test_ip_skipped_invalid_octet_single():
+    """One octet > 255 is enough to skip."""
+    assert _redact_ips("host 192.168.1.256") == "host 192.168.1.256"
+
+def test_ip_redacted_despite_nearby_version():
+    """IP after a non-version word is still redacted."""
+    text = "version 1.2.3.4 server 192.168.1.1"
+    result = _redact_ips(text)
+    assert "1.2.3.4" in result  # version context → kept
+    assert "192.168.1.1" not in result  # no version context → redacted
+
+def test_ip_loopback_redacted():
+    """127.0.0.1 is a valid IP and should be redacted."""
+    assert _redact_ips("localhost 127.0.0.1") == "localhost [IP_REDACTED]"
+
+def test_ip_integration_via_redact_secrets():
+    """Full pipeline: version string kept, real IP redacted."""
+    text = "Running Python 3.11.0.1 on 192.168.1.100"
+    result = redact_secrets(text)
+    assert "3.11.0.1" in result
+    assert "192.168.1.100" not in result
+    assert "[IP_REDACTED]" in result
+
+
+# ---------------------------------------------------------------------------
+# Context-sensitive UUID redaction (Task 3.2)
+# ---------------------------------------------------------------------------
+
+def test_uuid_kept_in_url():
+    """UUID inside a URL path should NOT be redacted."""
+    text = "https://api.example.com/users/123e4567-e89b-12d3-a456-426614174000/profile"
+    assert _redact_uuids(text) == text
+
+def test_uuid_kept_in_config_id():
+    """UUID after 'id:' should NOT be redacted."""
+    text = "id: 123e4567-e89b-12d3-a456-426614174000"
+    assert _redact_uuids(text) == text
+
+def test_uuid_kept_in_config_uuid_equals():
+    """UUID after 'uuid=' should NOT be redacted."""
+    text = "uuid=123e4567-e89b-12d3-a456-426614174000"
+    assert _redact_uuids(text) == text
+
+def test_uuid_kept_correlation_id():
+    """UUID after 'correlation_id:' should NOT be redacted."""
+    text = "correlation_id: 123e4567-e89b-12d3-a456-426614174000"
+    assert _redact_uuids(text) == text
+
+def test_uuid_redacted_near_secret_keyword():
+    """UUID near 'secret' keyword should be redacted."""
+    text = "secret: 123e4567-e89b-12d3-a456-426614174000"
+    result = _redact_uuids(text)
+    assert "[UUID_REDACTED]" in result
+    assert "123e4567" not in result
+
+def test_uuid_redacted_near_token_keyword():
+    """UUID near 'token' keyword should be redacted."""
+    text = "auth_token = 123e4567-e89b-12d3-a456-426614174000"
+    result = _redact_uuids(text)
+    assert "[UUID_REDACTED]" in result
+
+def test_uuid_redacted_near_password():
+    """UUID near 'password' keyword should be redacted."""
+    text = "password 123e4567-e89b-12d3-a456-426614174000"
+    result = _redact_uuids(text)
+    assert "[UUID_REDACTED]" in result
+
+def test_uuid_kept_standalone():
+    """A standalone UUID with no context defaults to NOT redacted (conservative)."""
+    text = "value 123e4567-e89b-12d3-a456-426614174000 end"
+    assert _redact_uuids(text) == text
+
+def test_uuid_integration_url_preserved():
+    """Full pipeline: UUID in URL survives all passes."""
+    text = "Fetched https://api.example.com/v2/123e4567-e89b-12d3-a456-426614174000"
+    result = redact_secrets(text)
+    assert "123e4567-e89b-12d3-a456-426614174000" in result
+
+def test_uuid_integration_secret_redacted():
+    """Full pipeline: UUID near 'secret' is redacted."""
+    text = "The secret is 123e4567-e89b-12d3-a456-426614174000"
+    result = redact_secrets(text)
+    assert "[UUID_REDACTED]" in result
+    assert "123e4567" not in result

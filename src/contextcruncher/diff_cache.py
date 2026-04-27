@@ -13,20 +13,35 @@ from __future__ import annotations
 import difflib
 import hashlib
 import time
+from collections import OrderedDict
+
+_MAX_CACHE_SIZE = 100
 
 
 class DiffCache:
     """In-memory text cache keyed by content hash."""
 
     def __init__(self) -> None:
-        self._cache: dict[str, str] = {}      # hash → content
-        self._timestamps: dict[str, float] = {}  # hash → epoch
+        self._cache: OrderedDict[str, str] = OrderedDict()      # hash → content
+        self._timestamps: OrderedDict[str, float] = OrderedDict()  # hash → epoch
 
     def store(self, text: str) -> str:
-        """Store *text* and return a short hash ID (16 hex chars)."""
+        """Store *text* and return a short hash ID (16 hex chars).
+
+        When the cache exceeds ``_MAX_CACHE_SIZE`` entries the oldest
+        entry is evicted (LRU).
+        """
         h = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
+        # Move to end if already present (refresh LRU position).
+        if h in self._cache:
+            self._cache.move_to_end(h)
+            self._timestamps.move_to_end(h)
         self._cache[h] = text
         self._timestamps[h] = time.time()
+        # Evict oldest entry when over limit.
+        while len(self._cache) > _MAX_CACHE_SIZE:
+            self._cache.popitem(last=False)
+            self._timestamps.popitem(last=False)
         return h
 
     def get(self, hash_id: str) -> str | None:

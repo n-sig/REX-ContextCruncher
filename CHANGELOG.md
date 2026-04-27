@@ -4,6 +4,75 @@ All notable changes to ContextCruncher are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Dates are ISO 8601.
 
+## [2.0.1] — 2026-04-27
+
+Maintenance release — documentation accuracy, memory safety, security
+scanner improvements, and code-quality refactors. No breaking changes.
+
+### Fixed
+
+- **DiffCache memory leak** — `_cache` dict now uses `OrderedDict` with
+  an eviction cap of 100 entries (oldest-first), preventing unbounded
+  memory growth during long MCP sessions. *(Task 2.1)*
+- **`search_stack` empty-vs-no-results ambiguity** — return value changed
+  from a plain list to `{"stack_size": N, "results": [...]}` so AI agents
+  can distinguish an empty stack from zero search hits. *(Task 2.2)*
+- **Auto-Crunch toggle race condition** — `_handle_toggle_auto_crunch` in
+  `tray.py` now wraps the boolean toggle with `threading.Lock()` to
+  prevent concurrent pystray callbacks from producing inconsistent
+  state. *(Task 2.3)*
+- **Security scanner: IPv4 false positives on version strings** —
+  `_VERSION_PREFIXES` now use word boundaries (`\b`) so `"server"` no
+  longer triggers the `"ver"` prefix guard. Detection window narrowed
+  to 30 characters before the match. *(Task 3.1)*
+- **Security scanner: UUID false redaction** — UUIDs in URLs and config
+  keys (e.g. `subscription_id`) are now preserved; only UUIDs adjacent
+  to sensitive keywords (`secret`, `token`, `password`) are
+  redacted. *(Task 3.2)*
+
+### Improved
+
+- **Prompt optimizer: credential deduplication** — extracted duplicated
+  provider-resolution logic from `optimize()` and `compress()` into a
+  shared `_ProviderCredentials` dataclass and `_resolve_credentials()`
+  helper, reducing ~50 lines of duplication. *(Task 4.1)*
+- **Skeletonizer: JS/TS regex coverage** — added patterns for method
+  shorthands, getters/setters, static properties/methods, and
+  arrow-function class properties; added negative-lookahead guards
+  for control-flow keywords (`if`, `for`, `switch`). *(Task 4.2)*
+- **`_relevance_score` tokenization** — new `_tokenize()` helper splits
+  CamelCase, PascalCase, snake_case, dots, and hyphens so queries like
+  `"relevance score"` match `relevance_score` or `relevanceScore` in
+  file text. *(Task 4.3)*
+- **Settings handler thread-safety comment** — documented why the
+  `threading.Thread` wrapper in `tray._handle_settings` is required
+  (pystray responsiveness) and safe (all Tk work dispatched via
+  `get_tk_manager().schedule()`). *(Task 5.1)*
+
+### Docs
+
+- **Version sync** — `__init__.__version__`, `README.md`, and
+  `CHANGELOG.md` now consistently report `2.0.1`. *(Task 1.1)*
+- **User guide rewritten** — updated from v0.2.0-beta to v2.0.1 with
+  correct hotkey defaults, new AI Compression / MCP Server / Content
+  Router chapters, and accurate hotkey table. *(Task 1.2)*
+- **README privacy table corrected** — added footnote clarifying that
+  `httpx` is used when opt-in AI tools are explicitly invoked. *(Task 1.3)*
+
+### Tests
+
+- Added DiffCache eviction test (150 entries → capped at 100).
+- Added `search_stack` empty-stack, no-matches, and match tests for the
+  new dict return format.
+- Added 20+ security scanner tests for version-string skipping, UUID
+  context handling, and IP octet validation.
+- Added 5 skeletonizer tests for getters/setters, static methods, arrow
+  functions, method shorthands, and control-flow exclusion.
+- Added 7 `_tokenize` tests (CamelCase, PascalCase, snake_case, dot-path,
+  acronym splitting, single-char filtering, mixed compound) and 2
+  `_relevance_score` CamelCase/snake_case matching tests.
+- **Total: 504 passed · 7 skipped · 0 failed** (excl. env-dependent OCR).
+
 ## [2.0.0] — 2026-04-19
 
 The AI-Compression release. Adds opt-in LLM-based semantic compression,
@@ -182,6 +251,7 @@ for the v2.0 `ai_compress` tool.
 
 ---
 
+[2.0.1]: #201--2026-04-27
 [2.0.0]: #200--2026-04-19
 [1.0.0]: #100--phase-1--phase-2
 [0.2.0-beta]: #020-beta--2025-zero-friction-update

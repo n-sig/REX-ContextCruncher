@@ -71,6 +71,103 @@ export const helper = (args) => {
 
 
 # ---------------------------------------------------------------------------
+# JS/TS skeleton — extended patterns (Task 4.2)
+# ---------------------------------------------------------------------------
+
+def test_js_skeleton_getter_setter():
+    """get/set accessors should appear in skeleton."""
+    code = """\
+class MyStore {
+    get items() {
+        return this._items;
+    }
+    set items(val) {
+        this._items = val;
+    }
+}
+"""
+    skeleton = crunch_skeleton(code, "store.ts")
+    assert "get items()" in skeleton
+    assert "set items(val)" in skeleton
+    assert "this._items" not in skeleton
+
+
+def test_js_skeleton_static_method():
+    """Static methods and properties should appear in skeleton."""
+    code = """\
+class Utils {
+    static create(name) {
+        return new Utils(name);
+    }
+    static DEFAULT_TIMEOUT = 5000;
+}
+"""
+    skeleton = crunch_skeleton(code, "utils.js")
+    assert "static create" in skeleton
+    assert "static DEFAULT_TIMEOUT" in skeleton
+    assert "new Utils" not in skeleton
+
+
+def test_js_skeleton_arrow_property():
+    """Arrow function class properties should appear in skeleton."""
+    code = """\
+class Handler {
+    onClick = (event) => {
+        event.preventDefault();
+    }
+    fetchData = async (url) => {
+        return await fetch(url);
+    }
+}
+"""
+    skeleton = crunch_skeleton(code, "handler.ts")
+    assert "onClick = (event) =>" in skeleton
+    assert "fetchData = async (url) =>" in skeleton
+    assert "event.preventDefault" not in skeleton
+
+
+def test_js_skeleton_method_shorthand():
+    """Method shorthand (foo() {) should appear in skeleton."""
+    code = """\
+class Router {
+    navigate(path) {
+        window.location = path;
+    }
+    render() {
+        return this.view;
+    }
+}
+"""
+    skeleton = crunch_skeleton(code, "router.js")
+    assert "navigate(path)" in skeleton
+    assert "render()" in skeleton
+    assert "window.location" not in skeleton
+
+
+def test_js_skeleton_control_flow_excluded():
+    """Control flow lines must NOT appear in skeleton."""
+    code = """\
+function process(data) {
+    if (data.length > 0) {
+        for (let i = 0; i < data.length; i++) {
+            switch (data[i].type) {
+                case 'a': break;
+            }
+            return data[i];
+        }
+    }
+    throw new Error("empty");
+}
+"""
+    skeleton = crunch_skeleton(code, "process.js")
+    # function should appear
+    assert "function process(data)" in skeleton
+    # control flow should NOT appear
+    for kw in ("if (data", "for (let", "switch (data", "throw new"):
+        assert kw not in skeleton, f"control flow '{kw}' should be excluded"
+
+
+# ---------------------------------------------------------------------------
 # JSON skeleton — _reduce_value helper
 # ---------------------------------------------------------------------------
 

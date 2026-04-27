@@ -767,14 +767,22 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
         ai_test_status.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
 
         def _on_test_connection() -> None:
-            """Probe the configured Ollama endpoint off the Tk thread."""
+            """Probe the configured endpoint off the Tk thread."""
             endpoint_val = ai_endpoint_var.get().strip() or "http://localhost:11434"
+            key_val = ai_key_var.get().strip()
+            provider_val = _provider_options.get(ai_provider_var.get(), "ollama")
+
             # Immediate feedback — overwritten when the probe returns
             ai_test_status.config(text="⏳ Testing…", fg=_FG_DIM)
 
             def _worker() -> None:
-                from contextcruncher.prompt_optimizer import probe_ollama
-                result = probe_ollama(endpoint_val)
+                from contextcruncher.prompt_optimizer import probe_ollama, probe_openai, probe_anthropic
+                if provider_val == "openai":
+                    result = probe_openai(key_val)
+                elif provider_val == "anthropic":
+                    result = probe_anthropic(key_val)
+                else:
+                    result = probe_ollama(endpoint_val)
 
                 def _apply() -> None:
                     if result.ok:

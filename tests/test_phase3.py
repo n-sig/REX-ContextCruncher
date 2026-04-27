@@ -6,6 +6,12 @@ Tests for Phase 3 of AI Context Manager:
 
 import pytest
 from pathlib import Path
+import sys
+
+# Add src to python path for testing
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import re
 
 from contextcruncher.token_counter import count_tokens, truncate_to_budget
 from contextcruncher.content_router import smart_route, detect_content_type
@@ -13,19 +19,77 @@ from contextcruncher.security_scanner import redact_secrets
 
 
 # ---------------------------------------------------------------------------
-# _relevance_score (standalone re-implementation for testability)
+# _tokenize + _relevance_score (mirrors of mcp_server internals)
 # ---------------------------------------------------------------------------
+
+def _tokenize(text: str) -> set[str]:
+    """Mirror of mcp_server._tokenize for testing."""
+    parts = re.split(r'[^a-zA-Z0-9]+', text)
+    tokens: set[str] = set()
+    for part in parts:
+        if not part:
+            continue
+        sub_parts = re.sub(r'([a-z])([A-Z])', r'\1 \2', part)
+        sub_parts = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', sub_parts)
+        for tok in sub_parts.split():
+            low = tok.lower()
+            if len(low) >= 2:
+                tokens.add(low)
+    return tokens
+
 
 def _relevance_score(text: str, question: str) -> float:
     """Mirror of mcp_server._relevance_score for testing."""
     if not question:
         return 1.0
-    q_words = set(question.lower().split())
-    t_words = set(text[:2000].lower().split())
+    q_words = _tokenize(question)
+    t_words = _tokenize(text[:2000])
     if not q_words:
         return 1.0
     overlap = q_words & t_words
     return len(overlap) / len(q_words)
+
+
+class TestTokenize:
+    """Tests for the _tokenize helper (Task 4.3)."""
+
+    def test_camel_case(self):
+        tokens = _tokenize("myFunctionName")
+        assert tokens == {"my", "function", "name"}
+
+    def test_pascal_case(self):
+        tokens = _tokenize("MyFunctionName")
+        assert tokens == {"my", "function", "name"}
+
+    def test_snake_case(self):
+        tokens = _tokenize("load_config_file")
+        assert tokens == {"load", "config", "file"}
+
+    def test_dot_path(self):
+        tokens = _tokenize("path/to/main.py")
+        assert "path" in tokens
+        assert "main" in tokens
+        assert "py" in tokens
+
+    def test_acronym_splitting(self):
+        tokens = _tokenize("XMLParser")
+        assert "xml" in tokens
+        assert "parser" in tokens
+
+    def test_single_char_dropped(self):
+        """Single-character tokens should be dropped."""
+        tokens = _tokenize("a b c de fg")
+        assert "de" in tokens
+        assert "fg" in tokens
+        assert "a" not in tokens
+        assert "b" not in tokens
+
+    def test_mixed_compound(self):
+        """Mixed identifiers with hyphens and underscores."""
+        tokens = _tokenize("my-module_nameV2")
+        assert "my" in tokens
+        assert "module" in tokens
+        assert "name" in tokens
 
 
 class TestRelevanceScore:
@@ -49,6 +113,16 @@ class TestRelevanceScore:
 
     def test_case_insensitive(self):
         score = _relevance_score("The QUICK Brown FOX", "quick fox")
+        assert score == 1.0
+
+    def test_camel_case_match(self):
+        """'my function' should match 'myFunctionName' in text."""
+        score = _relevance_score("def myFunctionName(): pass", "my function")
+        assert score == 1.0
+
+    def test_snake_case_match(self):
+        """'load config' should match 'load_config' in text."""
+        score = _relevance_score("load_config()", "load config")
         assert score == 1.0
 
 

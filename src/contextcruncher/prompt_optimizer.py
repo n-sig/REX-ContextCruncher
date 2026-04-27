@@ -603,6 +603,83 @@ def probe_ollama(endpoint: str = "http://localhost:11434",
     )
 
 
+def probe_openai(api_key: str, timeout: float = 3.0) -> ConnectionProbeResult:
+    """Probe the OpenAI API to verify the key and get available models."""
+    if httpx is None:
+        return ConnectionProbeResult(
+            ok=False, error="httpx not installed. Run: pip install httpx",
+        )
+    if not api_key:
+        return ConnectionProbeResult(ok=False, error="OpenAI API key missing.")
+
+    url = "https://api.openai.com/v1/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    start = time.perf_counter_ns()
+    try:
+        resp = httpx.get(url, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except httpx.HTTPStatusError as e:
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        err_msg = f"HTTP {e.response.status_code}"
+        if e.response.status_code == 401:
+            err_msg = "Invalid API Key (HTTP 401)"
+        return ConnectionProbeResult(ok=False, error=f"OpenAI error: {err_msg}", latency_ms=elapsed)
+    except Exception as e:
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        return ConnectionProbeResult(
+            ok=False,
+            error=_friendly_provider_error(e, "openai", ""),
+            latency_ms=elapsed,
+        )
+
+    elapsed = (time.perf_counter_ns() - start) // 1_000_000
+    models_raw = data.get("data", []) if isinstance(data, dict) else []
+    model_names: list[str] = [m.get("id", "") for m in models_raw if isinstance(m, dict) and m.get("id")]
+    return ConnectionProbeResult(
+        ok=True, models=model_names, latency_ms=elapsed,
+    )
+
+
+def probe_anthropic(api_key: str, timeout: float = 3.0) -> ConnectionProbeResult:
+    """Probe the Anthropic API to verify the key and get available models."""
+    if httpx is None:
+        return ConnectionProbeResult(
+            ok=False, error="httpx not installed. Run: pip install httpx",
+        )
+    if not api_key:
+        return ConnectionProbeResult(ok=False, error="Anthropic API key missing.")
+
+    url = "https://api.anthropic.com/v1/models"
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+    start = time.perf_counter_ns()
+    try:
+        resp = httpx.get(url, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except httpx.HTTPStatusError as e:
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        err_msg = f"HTTP {e.response.status_code}"
+        if e.response.status_code == 401:
+            err_msg = "Invalid API Key (HTTP 401)"
+        return ConnectionProbeResult(ok=False, error=f"Anthropic error: {err_msg}", latency_ms=elapsed)
+    except Exception as e:
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        return ConnectionProbeResult(
+            ok=False,
+            error=_friendly_provider_error(e, "anthropic", ""),
+            latency_ms=elapsed,
+        )
+
+    elapsed = (time.perf_counter_ns() - start) // 1_000_000
+    models_raw = data.get("data", []) if isinstance(data, dict) else []
+    model_names: list[str] = [m.get("id", "") for m in models_raw if isinstance(m, dict) and m.get("id")]
+    return ConnectionProbeResult(
+        ok=True, models=model_names, latency_ms=elapsed,
+    )
 # -----------------------------------------------------------------------
 # Provider Implementations (httpx-based)
 # -----------------------------------------------------------------------
@@ -758,6 +835,64 @@ _PROVIDERS = {
 
 
 # -----------------------------------------------------------------------
+# Shared credential resolution  (Task 4.1 — deduplicated)
+# -----------------------------------------------------------------------
+
+@dataclass
+class _ProviderCredentials:
+    """Resolved provider credentials for an LLM call."""
+    provider: str
+    model: str
+    api_key: str
+    endpoint: str
+    error: str = ""
+
+
+def _resolve_credentials(
+    provider: str,
+    model: str,
+    profile_endpoint: str = "",
+) -> _ProviderCredentials:
+    """Resolve API keys/endpoints for the given provider.
+
+    Returns a ``_ProviderCredentials`` instance.  When ``error`` is non-empty,
+    the caller should return an error result immediately.
+    """
+    config = get_provider_config()
+    api_key = ""
+    endpoint = ""
+
+    if provider == "openai":
+        api_key = config.get("openai_api_key", "")
+        if not api_key:
+            return _ProviderCredentials(
+                provider=provider, model=model, api_key="", endpoint="",
+                error="OpenAI API key not configured. Save it via manage_optimizer_profile or add to llm_keys.json.",
+            )
+    elif provider == "anthropic":
+        api_key = config.get("anthropic_api_key", "")
+        if not api_key:
+            return _ProviderCredentials(
+                provider=provider, model=model, api_key="", endpoint="",
+                error="Anthropic API key not configured. Save it via manage_optimizer_profile or add to llm_keys.json.",
+            )
+    elif provider == "ollama":
+        endpoint = config.get(
+            "ollama_endpoint",
+            profile_endpoint or "http://localhost:11434",
+        )
+    else:
+        return _ProviderCredentials(
+            provider=provider, model=model, api_key="", endpoint="",
+            error=f"Unknown provider '{provider}'. Use: openai, anthropic, ollama.",
+        )
+
+    return _ProviderCredentials(
+        provider=provider, model=model, api_key=api_key, endpoint=endpoint,
+    )
+
+
+# -----------------------------------------------------------------------
 # Main Optimize Function
 # -----------------------------------------------------------------------
 
@@ -802,34 +937,13 @@ def optimize(
     provider = provider_override or profile.provider
     model = model_override or profile.model
 
-    # Resolve credentials
-    config = get_provider_config()
-    api_key = ""
-    endpoint = ""
-
-    if provider == "openai":
-        api_key = config.get("openai_api_key", "")
-        if not api_key:
-            return OptimizeResult(
-                original_text=text, optimized_prompt="", profile_used=profile_name,
-                provider=provider, model=model, input_tokens=0, output_tokens=0,
-                latency_ms=0, error="OpenAI API key not configured. Save it via manage_optimizer_profile or add to llm_keys.json.",
-            )
-    elif provider == "anthropic":
-        api_key = config.get("anthropic_api_key", "")
-        if not api_key:
-            return OptimizeResult(
-                original_text=text, optimized_prompt="", profile_used=profile_name,
-                provider=provider, model=model, input_tokens=0, output_tokens=0,
-                latency_ms=0, error="Anthropic API key not configured. Save it via manage_optimizer_profile or add to llm_keys.json.",
-            )
-    elif provider == "ollama":
-        endpoint = config.get("ollama_endpoint", profile.endpoint or "http://localhost:11434")
-    else:
+    # Resolve credentials (shared helper)
+    creds = _resolve_credentials(provider, model, profile.endpoint)
+    if creds.error:
         return OptimizeResult(
             original_text=text, optimized_prompt="", profile_used=profile_name,
             provider=provider, model=model, input_tokens=0, output_tokens=0,
-            latency_ms=0, error=f"Unknown provider '{provider}'. Use: openai, anthropic, ollama.",
+            latency_ms=0, error=creds.error,
         )
 
     # Create a modified profile with overrides
@@ -840,7 +954,7 @@ def optimize(
         system_prompt=profile.system_prompt,
         temperature=profile.temperature,
         max_output_tokens=profile.max_output_tokens,
-        endpoint=endpoint,
+        endpoint=creds.endpoint,
     )
 
     # Check httpx availability (just before network call, after all validations)
@@ -855,9 +969,9 @@ def optimize(
     try:
         call_fn = _PROVIDERS[provider]
         if provider == "ollama":
-            response_text, usage = call_fn(text, effective_profile, endpoint)
+            response_text, usage = call_fn(text, effective_profile, creds.endpoint)
         else:
-            response_text, usage = call_fn(text, effective_profile, api_key)
+            response_text, usage = call_fn(text, effective_profile, creds.api_key)
     except httpx.TimeoutException:
         elapsed = (time.perf_counter_ns() - start) // 1_000_000
         return OptimizeResult(
@@ -985,44 +1099,19 @@ def compress(
     provider = provider_override or cfg.get("ai_compress_provider", profile.provider)
     model = model_override or cfg.get("ai_compress_model", profile.model)
 
-    # Resolve credentials
-    keys_config = get_provider_config()
-    api_key = ""
-    endpoint = ""
-
-    if provider == "openai":
-        api_key = keys_config.get("openai_api_key", "")
-        if not api_key:
-            elapsed = (time.perf_counter_ns() - start) // 1_000_000
-            return CompressResult(
-                original_text=text, compressed_text="",
-                provider=provider, model=model,
-                original_tokens=original_tokens, compressed_tokens=0,
-                saved_percent=0.0, latency_ms=elapsed,
-                error="OpenAI API key not configured. Set it in Settings → AI Compression.",
-            )
-    elif provider == "anthropic":
-        api_key = keys_config.get("anthropic_api_key", "")
-        if not api_key:
-            elapsed = (time.perf_counter_ns() - start) // 1_000_000
-            return CompressResult(
-                original_text=text, compressed_text="",
-                provider=provider, model=model,
-                original_tokens=original_tokens, compressed_tokens=0,
-                saved_percent=0.0, latency_ms=elapsed,
-                error="Anthropic API key not configured. Set it in Settings → AI Compression.",
-            )
-    elif provider == "ollama":
-        endpoint = keys_config.get("ollama_endpoint", "http://localhost:11434")
-    else:
+    # Resolve credentials (shared helper)
+    creds = _resolve_credentials(provider, model)
+    if creds.error:
         elapsed = (time.perf_counter_ns() - start) // 1_000_000
         return CompressResult(
             original_text=text, compressed_text="",
             provider=provider, model=model,
             original_tokens=original_tokens, compressed_tokens=0,
             saved_percent=0.0, latency_ms=elapsed,
-            error=f"Unknown provider '{provider}'.",
+            error=creds.error,
         )
+    api_key = creds.api_key
+    endpoint = creds.endpoint
 
     # CONTENT-TYPE HINT: Tell the LLM what kind of text it's compressing
     # so it can apply domain-appropriate compression strategies.

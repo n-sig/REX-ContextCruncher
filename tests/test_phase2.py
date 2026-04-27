@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from contextcruncher.token_counter import count_tokens, truncate_to_budget
-from contextcruncher.diff_cache import DiffCache
+from contextcruncher.diff_cache import DiffCache, _MAX_CACHE_SIZE
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +140,22 @@ class TestDiffCache:
         assert cache.size() == 1
         cache.store("b")
         assert cache.size() == 2
+
+    def test_diff_cache_eviction(self):
+        """Storing more than _MAX_CACHE_SIZE entries evicts the oldest."""
+        cache = DiffCache()
+        hashes = []
+        for i in range(150):
+            h = cache.store(f"entry-{i}")
+            hashes.append(h)
+        # Cache must never exceed the limit.
+        assert cache.size() <= _MAX_CACHE_SIZE
+        # Oldest entries (0..49) should have been evicted.
+        for h in hashes[:50]:
+            assert cache.get(h) is None, f"entry for hash {h} should be evicted"
+        # Newest entries (50..149) should still be present.
+        for h in hashes[50:]:
+            assert cache.get(h) is not None, f"entry for hash {h} should exist"
 
 
 # ---------------------------------------------------------------------------

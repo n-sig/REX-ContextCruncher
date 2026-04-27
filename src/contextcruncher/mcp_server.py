@@ -258,7 +258,7 @@ def crunch_text(text: str, level: int = 2) -> dict:
 
 
 @mcp.tool()
-def search_stack(query: str = "") -> list[dict]:
+def search_stack(query: str = "") -> dict:
     """Search through clipboard/OCR history or return the entire stack.
 
     Use this when the user asks "did I copy something about X?",
@@ -269,7 +269,9 @@ def search_stack(query: str = "") -> list[dict]:
         query: Optional search term (case-insensitive). If empty, returns full stack.
 
     Returns:
-        A list of matching entries. Each entry contains index, text, original, and compact.
+        A dict with ``stack_size`` (total entries) and ``results`` (matching
+        entries).  This lets callers distinguish "empty stack" from
+        "no matches for query".
     """
     entries = []
     q = query.lower() if query else ""
@@ -285,10 +287,10 @@ def search_stack(query: str = "") -> list[dict]:
                 "compact": entry.compact,
             })
 
-    if not entries:
-        msg = f"No entries matching '{query}' found." if query else "Stack is empty."
-        return [{"message": msg}]
-    return entries
+    return {
+        "stack_size": _stack.size(),
+        "results": entries,
+    }
 
 
 
@@ -913,18 +915,53 @@ def diff_crunch(text: str, previous_version_id: str = "") -> dict:
 _MIN_TOKENS_PER_FILE = 200  # Below this, a file is too small to be useful
 
 
-def _relevance_score(text: str, question: str) -> float:
-    """Simple keyword-overlap relevance score (0.0–1.0).
+def _tokenize(text: str) -> set[str]:
+    """Split *text* into a lowered token set.
 
-    Uses lowercased word-set intersection between *question* and *text*.
+    Handles whitespace, underscores, hyphens, dots, slashes **and**
+    CamelCase/PascalCase boundaries::
+
+        "myFunctionName"  → {"my", "function", "name"}
+        "load_config"     → {"load", "config"}
+        "path/to/file.py" → {"path", "to", "file", "py"}
+
+    All tokens are lowered; tokens shorter than 2 chars are dropped to
+    avoid noise from single-letter fragments (e.g. 's' in "getS").
+    """
+    # 1. Split on non-alphanum characters (underscore, hyphen, dot, slash, …)
+    parts = re.split(r'[^a-zA-Z0-9]+', text)
+    tokens: set[str] = set()
+    for part in parts:
+        if not part:
+            continue
+        # 2. Split CamelCase: insert boundary before upper-case letter
+        #    that follows a lower-case letter (e.g. "myFunc" → "my|Func")
+        #    or before an upper followed by a lower after a run of uppers
+        #    (e.g. "XMLParser" → "XML|Parser").
+        sub_parts = re.sub(r'([a-z])([A-Z])', r'\1 \2', part)
+        sub_parts = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', sub_parts)
+        for tok in sub_parts.split():
+            low = tok.lower()
+            if len(low) >= 2:
+                tokens.add(low)
+    return tokens
+
+
+def _relevance_score(text: str, question: str) -> float:
+    """Keyword-overlap relevance score (0.0–1.0).
+
+    Uses :func:`_tokenize` which splits on whitespace **and**
+    CamelCase / snake_case / dot-path boundaries — so a query like
+    ``"relevance score"`` matches ``relevance_score`` in the text.
+
     No external dependencies.  Good enough for keyword-based ranking;
     semantic ranking is a future FR-05 upgrade.
     """
     if not question:
         return 1.0
-    q_words = set(question.lower().split())
+    q_words = _tokenize(question)
     # Only sample the first 2000 chars for speed on large files
-    t_words = set(text[:2000].lower().split())
+    t_words = _tokenize(text[:2000])
     if not q_words:
         return 1.0
     overlap = q_words & t_words

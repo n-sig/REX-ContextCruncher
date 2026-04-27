@@ -71,6 +71,19 @@ def _crude_js_ts_skeleton(code: str) -> str:
             r"^\s*(?:public|private|protected)?\s*(?:async\s+)?\w+\s*\([^)]*\)\s*(?::\s*[\w\<\>\[\]]+)?\s*\{?"
         ),
         re.compile(r"^\s*const\s+\w+\s*=\s*(?:async\s*)?\([^)]*\)\s*=>"),
+        # --- Task 4.2: additional patterns ---
+        # Getter/Setter: get foo() / set bar(val)
+        re.compile(r"^\s+(?:get|set)\s+\w+\s*\("),
+        # Static methods/properties: static foo() / static bar =
+        re.compile(r"^\s+static\s+"),
+        # Arrow function class properties: foo = (...) =>
+        re.compile(r"^\s+\w+\s*=\s*(?:async\s*)?\([^)]*\)\s*=>"),
+        # Method shorthand in class body: foo() { (indented, no keyword)
+        # Guard: must NOT start with control flow keywords
+        re.compile(
+            r"^\s+(?!if\b|else\b|for\b|while\b|switch\b|return\b|case\b|throw\b|try\b|catch\b|finally\b)"
+            r"\w+\s*\([^)]*\)\s*\{?"
+        ),
     ]
 
     for line in lines:

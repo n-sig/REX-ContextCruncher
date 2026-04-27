@@ -136,6 +136,7 @@ class TrayApp:
         from contextcruncher.config import load_config
         cfg = load_config()
         self._auto_crunch_enabled = cfg.get("auto_crunch", False)
+        self._toggle_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Menu builder
@@ -319,9 +320,10 @@ class TrayApp:
             self._on_search_stack()
 
     def _handle_toggle_auto_crunch(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        self._auto_crunch_enabled = not self._auto_crunch_enabled
-        if self._on_toggle_auto_crunch:
-            self._on_toggle_auto_crunch(self._auto_crunch_enabled)
+        with self._toggle_lock:
+            self._auto_crunch_enabled = not self._auto_crunch_enabled
+            if self._on_toggle_auto_crunch:
+                self._on_toggle_auto_crunch(self._auto_crunch_enabled)
         self.update_menu()
 
     def _handle_clear(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
@@ -331,7 +333,10 @@ class TrayApp:
 
     def _handle_settings(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if self._on_settings:
-            # Run in a thread so the tray stays responsive.
+            # Thread is REQUIRED: open_settings() blocks via done_event.wait(),
+            # which would freeze the pystray message loop.  Thread-safe because
+            # open_settings() dispatches all Tk work through
+            # get_tk_manager().schedule(), never creating widgets on this thread.
             threading.Thread(target=self._on_settings, daemon=True).start()
 
     def _handle_quit(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
