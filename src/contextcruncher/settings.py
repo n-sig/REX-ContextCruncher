@@ -554,6 +554,39 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
             buttonbackground=_BTN_BG, relief="flat",
         ).pack(side=tk.RIGHT)
 
+        # Snip save directory
+        snip_dir_row = tk.Frame(general_frame, bg=_BG)
+        snip_dir_row.pack(fill=tk.X, pady=(10, 3))
+        tk.Label(
+            snip_dir_row, text="Snip Save Folder", font=("Segoe UI", 11),
+            fg=_FG, bg=_BG, width=18, anchor="w",
+        ).pack(side=tk.LEFT)
+        
+        snip_dir_var = tk.StringVar(value=cfg.get("snip_save_dir", ""))
+        
+        def _browse_snip_dir() -> None:
+            from tkinter import filedialog
+            initial = snip_dir_var.get()
+            if not initial or not os.path.isdir(initial):
+                initial = os.path.join(os.path.expanduser("~"), "Desktop")
+            sel = filedialog.askdirectory(parent=win, initialdir=initial, title="Select Image Save Folder")
+            if sel:
+                # normalize path to use backslashes on windows
+                snip_dir_var.set(os.path.normpath(sel))
+        
+        tk.Button(
+            snip_dir_row, text="Browse...", command=_browse_snip_dir,
+            font=("Segoe UI", 10), fg=_FG, bg=_BTN_BG,
+            activebackground=_BTN_HOVER, activeforeground=_FG,
+            bd=0, padx=8, pady=2, cursor="hand2",
+        ).pack(side=tk.RIGHT, padx=(5, 0))
+        
+        snip_dir_entry = tk.Entry(
+            snip_dir_row, textvariable=snip_dir_var, font=("Segoe UI", 11),
+            bg=_BG_FIELD, fg=_FG, insertbackground=_FG, relief="flat", state="readonly"
+        )
+        snip_dir_entry.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+
         # Autostart
         autostart_var = tk.BooleanVar(value=get_autostart())
         autostart_row = tk.Frame(general_frame, bg=_BG)
@@ -869,6 +902,7 @@ def open_settings(on_save: Callable[[], None] | None = None) -> None:
             _cleanup_fields()
             cfg["hotkeys"] = new_hotkeys
             cfg["max_stack_size"] = stack_var.get()
+            cfg["snip_save_dir"] = snip_dir_var.get()
             cfg["autostart"] = autostart_var.get()
             cfg["ocr_language"] = _lang_display_to_tag.get(ocr_lang_var.get(), "auto")
             cfg["xml_wrap"] = xml_wrap_var.get()

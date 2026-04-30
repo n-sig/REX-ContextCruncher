@@ -257,7 +257,8 @@ def _on_snipping() -> None:
                     flash_region(bbox)
                     
                     short_name = os.path.basename(filename)
-                    show_toast(f"📸 Image Saved\nDesktop\\{short_name}")
+                    folder_name = os.path.basename(os.path.dirname(filename))
+                    show_toast(f"📸 Image Saved\n{folder_name}\\{short_name}")
                     log.info(f"Image snipped and saved to {filename}")
                 except Exception as e:
                     beep_empty()

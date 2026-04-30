@@ -48,9 +48,16 @@ def set_clipboard_image(image) -> None:
 
 
 def save_image_to_desktop(image) -> str:
-    """Save a PIL Image as JPG to the user's Desktop and return the path."""
+    """Save a PIL Image as JPG to the configured directory (default Desktop) and return the path."""
     import os
-    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    filename = os.path.join(desktop, f"Snip_{int(time.time())}.jpg")
+    from contextcruncher.config import load_config
+    
+    cfg = load_config()
+    save_dir = cfg.get("snip_save_dir", "")
+    
+    if not save_dir or not os.path.isdir(save_dir):
+        save_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+        
+    filename = os.path.join(save_dir, f"Snip_{int(time.time())}.jpg")
     image.convert("RGB").save(filename, "JPEG", quality=95)
     return filename

@@ -4,6 +4,12 @@ All notable changes to ContextCruncher are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Dates are ISO 8601.
 
+## [2.0.2] — 2026-04-30
+
+### Added
+
+- **Configurable Snip Save Directory** — Users can now configure the target folder for saved screenshot images via the Settings UI (defaults to the Desktop). The toast notification dynamically reflects the selected save path.
+
 ## [2.0.1] — 2026-04-27
 
 Maintenance release — documentation accuracy, memory safety, security
