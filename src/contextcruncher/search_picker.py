@@ -89,35 +89,42 @@ def _create_picker(
     root.attributes("-alpha", 0.95)
     root.configure(bg=_BG)
 
+    import datetime
+    
     # Convert stack context once and keep references to original indices
-    # We display them reverse chronologically (newest at index 0 in list but last in queue)
+    # We display them chronologically (newest at index 0)
     all_items = []
     # 1. Add Pinned Items (if any)
     pinned_items = stack.get_pinned_items()
     for i, entry in enumerate(pinned_items):
-        corpus = (entry.original + " " + (entry.compact or "") + " " + (entry.label or "")).lower()
+        corpus = (entry.original + " " + (entry.compact or "")).lower()
         savings = entry.saved_percent()
         preview = entry.original.replace("\n", " ").strip()
         if entry.compact:
             preview_tmp = entry.compact.replace("\n", " ").strip()
             if preview_tmp:
                 preview = preview_tmp
+                
+        dt = datetime.datetime.fromtimestamp(entry.created_at)
+        time_str = dt.strftime("%H:%M:%S")
+        
         all_items.append({
             "type": "pinned",
             "idx": i,
             "corpus": corpus,
             "preview": preview,
             "savings": savings,
-            "label": f"📌 {entry.label or 'Pinned'}"
+            "label": f"📌 {time_str}",
+            "has_variants": len(entry.variants) > 1
         })
 
     # 2. Add History Items (via public API)
     stack_size = stack.size()
     orig_items = [stack.get_entry(i) for i in range(stack_size)]
-    for i, entry in enumerate(reversed(orig_items)):
-        actual_idx = len(orig_items) - 1 - i
+    for i, entry in enumerate(orig_items):
+        actual_idx = i
         # Prepare search corpus
-        corpus = (entry.original + " " + (entry.compact or "") + " " + (entry.label or "")).lower()
+        corpus = (entry.original + " " + (entry.compact or "")).lower()
         
         # Determine highest saving text
         savings = entry.saved_percent()
@@ -128,17 +135,22 @@ def _create_picker(
             if preview_tmp:
                 preview = preview_tmp
                 
+        dt = datetime.datetime.fromtimestamp(entry.created_at)
+        time_str = dt.strftime("%H:%M:%S")
+
         all_items.append({
             "type": "history",
             "idx": actual_idx,
             "corpus": corpus,
             "preview": preview,
             "savings": savings,
-            "label": entry.label or f"Scan {actual_idx+1}"
+            "label": time_str,
+            "has_variants": len(entry.variants) > 1
         })
 
     state = {
         "sel_idx": 0,
+        "scroll_offset": 0,
         "filtered": list(all_items)
     }
 
@@ -230,8 +242,10 @@ def _create_picker(
     
     def _make_select_handler(visible_idx: int):
         def handler(_event=None):
-            if visible_idx < len(state["filtered"]):
-                item = state["filtered"][visible_idx]
+            start = state.get("scroll_offset", 0)
+            item_idx = start + visible_idx
+            if item_idx < len(state["filtered"]):
+                item = state["filtered"][item_idx]
                 actual_idx = item["idx"]
                 _close_picker()
                 if item.get("type", "history") == "pinned" and on_select_pinned:
@@ -242,8 +256,10 @@ def _create_picker(
 
     def _make_hover_enter(visible_idx: int):
         def handler(_event=None):
-            if visible_idx < len(state["filtered"]):
-                state["sel_idx"] = visible_idx
+            start = state.get("scroll_offset", 0)
+            item_idx = start + visible_idx
+            if item_idx < len(state["filtered"]):
+                state["sel_idx"] = item_idx
                 update_selection()
         return handler
 
@@ -279,11 +295,14 @@ def _create_picker(
         for f, _, _, _ in item_widgets:
             f.pack_forget()
             
+        start = state.get("scroll_offset", 0)
+        end = min(len(state["filtered"]), start + MAX_ITEMS_DISPLAY)
+        
         # Draw filtered
-        for i in range(min(len(state["filtered"]), MAX_ITEMS_DISPLAY)):
+        for i in range(end - start):
             f, l, p, sl = item_widgets[i]
             
-            item = state["filtered"][i]
+            item = state["filtered"][start + i]
             preview = item["preview"]
             if len(preview) > 60:
                 preview = preview[:57] + "..."
@@ -291,10 +310,12 @@ def _create_picker(
             p.config(text=preview)
             
             savings = item["savings"]
+            sl_text = ""
             if savings > 0:
-                sl.config(text=f"-{savings:.0f}%")
-            else:
-                sl.config(text="")
+                sl_text = f"-{savings:.0f}%"
+            if item.get("has_variants"):
+                sl_text = (sl_text + " ➔").strip()
+            sl.config(text=sl_text)
             
             # Show the frame
             f.pack(fill=tk.X, pady=2)
@@ -302,19 +323,24 @@ def _create_picker(
         # Sanitize cursor
         if len(state["filtered"]) == 0:
             state["sel_idx"] = 0
+            state["scroll_offset"] = 0
         elif state["sel_idx"] >= len(state["filtered"]):
             state["sel_idx"] = min(state["sel_idx"], len(state["filtered"]) - 1)
             
         update_selection()
 
     def update_selection():
-        for i in range(min(len(state["filtered"]), MAX_ITEMS_DISPLAY)):
+        start = state.get("scroll_offset", 0)
+        end = min(len(state["filtered"]), start + MAX_ITEMS_DISPLAY)
+        
+        for i in range(end - start):
             f, l, p, sl = item_widgets[i]
-            is_active = (i == state["sel_idx"])
+            item_idx = start + i
+            is_active = (item_idx == state["sel_idx"])
             bg = _BG_ACTIVE if is_active else _BG_ITEM
             f.config(bg=bg)
             
-            item = state["filtered"][i]
+            item = state["filtered"][item_idx]
             marker = "▸ " if is_active else "   "
             l.config(
                 bg=bg, 
@@ -341,6 +367,7 @@ def _create_picker(
             state["filtered"] = [item for item in all_items if query in item["corpus"]]
         
         state["sel_idx"] = 0
+        state["scroll_offset"] = 0
         render_list()
 
     entry_var.trace_add("write", on_search_change)
@@ -348,14 +375,34 @@ def _create_picker(
     def on_up(e):
         if state["sel_idx"] > 0:
             state["sel_idx"] -= 1
-            update_selection()
+            if state["sel_idx"] < state["scroll_offset"]:
+                state["scroll_offset"] = state["sel_idx"]
+                render_list()
+            else:
+                update_selection()
         return "break"
 
     def on_down(e):
-        max_bound = min(len(state["filtered"]), MAX_ITEMS_DISPLAY) - 1
-        if state["sel_idx"] < max_bound:
+        if state["sel_idx"] < len(state["filtered"]) - 1:
             state["sel_idx"] += 1
-            update_selection()
+            if state["sel_idx"] >= state["scroll_offset"] + MAX_ITEMS_DISPLAY:
+                state["scroll_offset"] = state["sel_idx"] - MAX_ITEMS_DISPLAY + 1
+                render_list()
+            else:
+                update_selection()
+        return "break"
+
+    def on_mousewheel(e):
+        if e.delta > 0 and state["scroll_offset"] > 0:
+            state["scroll_offset"] -= 1
+            if state["sel_idx"] >= state["scroll_offset"] + MAX_ITEMS_DISPLAY:
+                state["sel_idx"] = state["scroll_offset"] + MAX_ITEMS_DISPLAY - 1
+            render_list()
+        elif e.delta < 0 and state["scroll_offset"] < len(state["filtered"]) - MAX_ITEMS_DISPLAY:
+            state["scroll_offset"] += 1
+            if state["sel_idx"] < state["scroll_offset"]:
+                state["sel_idx"] = state["scroll_offset"]
+            render_list()
         return "break"
 
     def on_enter(e):
@@ -372,6 +419,7 @@ def _create_picker(
     search_entry.bind("<Up>", on_up)
     search_entry.bind("<Down>", on_down)
     search_entry.bind("<Return>", on_enter)
+    root.bind("<MouseWheel>", on_mousewheel)
 
     # ── Initial Paint ──
     render_list()
